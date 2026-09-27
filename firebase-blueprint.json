@@ -1,0 +1,232 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile for teachers and students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "email": { "type": "string", "maxLength": 256 },
+        "name": { "type": "string", "maxLength": 128 },
+        "role": { "type": "string", "enum": ["teacher", "student"] },
+        "avatar": { "type": "string", "maxLength": 512 },
+        "studentId": { "type": "string", "maxLength": 64 },
+        "totalPoints": { "type": "number" },
+        "level": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "email", "name", "role"]
+    },
+    "Classroom": {
+      "title": "Classroom",
+      "description": "Online classroom created by a teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "name": { "type": "string", "maxLength": 128 },
+        "subject": { "type": "string", "maxLength": 128 },
+        "code": { "type": "string", "maxLength": 32 },
+        "teacherId": { "type": "string", "maxLength": 128 },
+        "teacherName": { "type": "string", "maxLength": 128 },
+        "description": { "type": "string", "maxLength": 1024 },
+        "color": { "type": "string", "maxLength": 32 },
+        "studentIds": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "name", "subject", "code", "teacherId"]
+    },
+    "Lesson": {
+      "title": "Lesson",
+      "description": "Learning material or media resource in classroom",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "content": { "type": "string", "maxLength": 10000 },
+        "mediaUrl": { "type": "string", "maxLength": 1024 },
+        "mediaType": { "type": "string", "enum": ["pdf", "video", "link", "slide", "doc"] },
+        "unit": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "classroomId", "title"]
+    },
+    "Assignment": {
+      "title": "Assignment",
+      "description": "Homework or project task assigned by teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "description": { "type": "string", "maxLength": 5000 },
+        "dueDate": { "type": "string", "maxLength": 64 },
+        "maxScore": { "type": "number" },
+        "pointsReward": { "type": "number" },
+        "files": { "type": "array" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "classroomId", "title", "maxScore"]
+    },
+    "Submission": {
+      "title": "Submission",
+      "description": "Student homework submission with scores and feedback",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "assignmentId": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "submittedAt": { "type": "string", "maxLength": 64 },
+        "content": { "type": "string", "maxLength": 10000 },
+        "fileUrl": { "type": "string", "maxLength": 1024 },
+        "score": { "type": "number" },
+        "status": { "type": "string", "enum": ["submitted", "graded", "late"] },
+        "teacherFeedback": { "type": "string", "maxLength": 2048 },
+        "aiFeedback": { "type": "string", "maxLength": 4096 },
+        "pointsAwarded": { "type": "number" }
+      },
+      "required": ["id", "assignmentId", "classroomId", "studentId", "status"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Daily student attendance check-in",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "date": { "type": "string", "maxLength": 32 },
+        "checkedAt": { "type": "string", "maxLength": 64 },
+        "records": { "type": "object" }
+      },
+      "required": ["id", "classroomId", "date"]
+    },
+    "BehaviorRecord": {
+      "title": "BehaviorRecord",
+      "description": "Student behavior evaluation and score adjustment",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "type": { "type": "string", "enum": ["positive", "needs_improvement"] },
+        "category": { "type": "string", "maxLength": 64 },
+        "scoreDelta": { "type": "number" },
+        "note": { "type": "string", "maxLength": 512 },
+        "date": { "type": "string", "maxLength": 32 }
+      },
+      "required": ["id", "classroomId", "studentId", "type", "category"]
+    },
+    "Quiz": {
+      "title": "Quiz",
+      "description": "Quiz generated by AI or teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "topic": { "type": "string", "maxLength": 256 },
+        "questions": { "type": "array" },
+        "timeLimitMinutes": { "type": "number" },
+        "maxScore": { "type": "number" },
+        "createdAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "classroomId", "title", "questions"]
+    },
+    "QuizResult": {
+      "title": "QuizResult",
+      "description": "Student result of a quiz",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "quizId": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "score": { "type": "number" },
+        "totalScore": { "type": "number" },
+        "completedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "quizId", "studentId", "score"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Direct message between student and teacher",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "senderId": { "type": "string", "maxLength": 128 },
+        "senderName": { "type": "string", "maxLength": 128 },
+        "senderRole": { "type": "string", "enum": ["teacher", "student"] },
+        "receiverId": { "type": "string", "maxLength": 128 },
+        "classroomId": { "type": "string", "maxLength": 128 },
+        "text": { "type": "string", "maxLength": 2048 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "senderId", "receiverId", "text"]
+    },
+    "Certificate": {
+      "title": "Certificate",
+      "description": "Reward certificate for diligent and high-scoring students",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "studentId": { "type": "string", "maxLength": 128 },
+        "studentName": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "reason": { "type": "string", "maxLength": 512 },
+        "issuedDate": { "type": "string", "maxLength": 64 },
+        "teacherName": { "type": "string", "maxLength": 128 },
+        "certificateNumber": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "studentId", "studentName", "title", "issuedDate"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profiles and credentials"
+    },
+    "/classrooms/{classroomId}": {
+      "schema": "Classroom",
+      "description": "Classroom details"
+    },
+    "/lessons/{lessonId}": {
+      "schema": "Lesson",
+      "description": "Lesson materials and repositories"
+    },
+    "/assignments/{assignmentId}": {
+      "schema": "Assignment",
+      "description": "Classroom assignments"
+    },
+    "/submissions/{submissionId}": {
+      "schema": "Submission",
+      "description": "Student homework submissions"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Daily attendance records"
+    },
+    "/behavior/{behaviorId}": {
+      "schema": "BehaviorRecord",
+      "description": "Student behavior evaluations"
+    },
+    "/quizzes/{quizId}": {
+      "schema": "Quiz",
+      "description": "Classroom quizzes"
+    },
+    "/quiz_results/{resultId}": {
+      "schema": "QuizResult",
+      "description": "Student quiz results"
+    },
+    "/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Direct chat messages between teacher and student"
+    },
+    "/certificates/{certificateId}": {
+      "schema": "Certificate",
+      "description": "Issued certificates of achievement"
+    }
+  }
+}
