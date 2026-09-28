@@ -1,8 +1,9 @@
-import { GoogleGenAI, Type } from "@google/genai";
+import 'dotenv/config';
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import fs from "fs";
 import path from "path";
 
-function withTimeout<T>(promise: Promise<T>, ms = 25000): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, ms = 45000): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
@@ -266,7 +267,7 @@ ${params.studentSubmission || '(นักเรียนไม่ได้พิ
 4. ให้คำแนะนำสรุป (feedback) ภาษาไทยด้วยน้ำเสียงกัลยาณมิตร ชื่นชมและให้คำแนะนำที่เป็นรูปธรรม
 5. ระบุจุดแข็ง (strengths) และจุดที่ควรพัฒนา (weaknesses) พร้อมคำแนะนำเชิงปรับปรุง (recommendedImprovement)`;
 
-    const contents: any[] = [];
+    const parts: any[] = [];
 
     // Process attached files (images / PDFs / text)
     const uploadsDir = path.join(process.cwd(), "uploads");
@@ -298,14 +299,14 @@ ${params.studentSubmission || '(นักเรียนไม่ได้พิ
                 base64Data = buffer.toString("base64");
               } else if ([".txt", ".md", ".csv", ".json", ".html", ".js", ".ts", ".py"].includes(ext)) {
                 const textContent = buffer.toString("utf-8").slice(0, 10000);
-                contents.push(`[เนื้อหาไฟล์แนบ ${f.name}]:\n${textContent}`);
+                parts.push({ text: `[เนื้อหาไฟล์แนบ ${f.name}]:\n${textContent}` });
               }
             }
           }
         }
 
         if (base64Data && (mime.startsWith("image/") || mime === "application/pdf")) {
-          contents.push({
+          parts.push({
             inlineData: {
               mimeType: mime,
               data: base64Data,
@@ -317,13 +318,13 @@ ${params.studentSubmission || '(นักเรียนไม่ได้พิ
       }
     }
 
-    contents.push(promptText);
+    parts.push({ text: promptText });
 
     try {
       const textResult = await callGeminiWithFallback(
         ai,
         {
-          contents,
+          contents: { parts },
           config: {
             responseMimeType: "application/json",
             responseSchema: {

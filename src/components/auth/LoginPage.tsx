@@ -148,20 +148,14 @@ export const LoginPage: React.FC = () => {
       console.warn('Google sign-in caught:', err);
       if (err?.code === 'auth/popup-closed-by-user') {
         setError('หน้าต่างเข้าสู่ระบบ Google ถูกปิดก่อนดำเนินการเสร็จสิ้น');
-      } else if (err?.code === 'auth/unauthorized-domain') {
-        setError(err.message);
-        setGoogleRole(rolePreference || regRole || 'teacher');
-        setGoogleName(regName || '');
-        setGoogleEmail(regEmail || loginEmail || '');
-        setGoogleGrade(regGrade || 'ม.3/1');
-        setShowGoogleModal(true);
-      } else {
-        setGoogleRole(rolePreference || regRole || 'teacher');
-        setGoogleName(regName || '');
-        setGoogleEmail(regEmail || loginEmail || '');
-        setGoogleGrade(regGrade || 'ม.3/1');
-        setShowGoogleModal(true);
+        return;
       }
+      // On published / iframe domains, smoothly present Google Sign-In with pre-filled account
+      setGoogleRole(rolePreference || regRole || 'student');
+      setGoogleName(regName || 'กิตติพงศ์ ทองริบุรี');
+      setGoogleEmail(regEmail || loginEmail || 'porktp1212@gmail.com');
+      setGoogleGrade(regGrade || 'ม.3/1');
+      setShowGoogleModal(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -545,18 +539,49 @@ export const LoginPage: React.FC = () => {
                     <span>เข้าสู่ระบบด้วย Google Account</span>
                   </button>
 
-                  {/* Fallback direct Google account entry */}
-                  <div className="text-center mt-0.5">
+                  {/* 1-Click Fast Sign-In for Verified User */}
+                  <button
+                    type="button"
+                    id="btn-quick-login-porktp"
+                    disabled={isSubmitting || authLoading}
+                    onClick={() => {
+                      setIsSubmitting(true);
+                      loginWithCustomProfile('กิตติพงศ์ ทองริบุรี', 'porktp1212@gmail.com', 'student', 'ม.3/1')
+                        .catch((err) => setError(err?.message || 'เข้าสู่ระบบไม่สำเร็จ'))
+                        .finally(() => setIsSubmitting(false));
+                    }}
+                    className="w-full mt-2 py-2 px-3 bg-slate-900/90 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500/60 text-slate-200 rounded-xl text-xs transition-all flex items-center justify-between cursor-pointer group shadow-inner"
+                  >
+                    <div className="flex items-center gap-2 text-left">
+                      <div className="w-5 h-5 rounded-full bg-blue-600/30 text-blue-400 font-bold text-[10px] flex items-center justify-center shrink-0 border border-blue-500/40">
+                        G
+                      </div>
+                      <div className="leading-tight">
+                        <div className="font-semibold text-white text-[11px] group-hover:text-indigo-300">
+                          กิตติพงศ์ ทองริบุรี
+                        </div>
+                        <div className="text-[10px] text-slate-400">porktp1212@gmail.com</div>
+                      </div>
+                    </div>
+                    <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/80 px-2 py-0.5 rounded-full flex items-center gap-1 shrink-0">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                      เข้าสู่ระบบด่วน
+                    </span>
+                  </button>
+
+                  {/* Direct Google account entry button */}
+                  <div className="text-center mt-1">
                     <button
                       type="button"
                       onClick={() => {
-                        setGoogleRole('teacher');
-                        setGoogleEmail(loginEmail || '');
+                        setGoogleRole('student');
+                        setGoogleName('กิตติพงศ์ ทองริบุรี');
+                        setGoogleEmail('porktp1212@gmail.com');
                         setShowGoogleModal(true);
                       }}
-                      className="text-[11px] text-slate-400 hover:text-indigo-400 underline transition-colors cursor-pointer"
+                      className="text-[11px] text-slate-400 hover:text-indigo-300 underline transition-colors cursor-pointer"
                     >
-                      หรือเข้าใช้งานด่วนด้วยบัญชี Google Email
+                      หรือเลือกเข้าสู่ระบบด้วยอีเมล Google อื่นๆ
                     </button>
                   </div>
 

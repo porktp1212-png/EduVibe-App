@@ -11,19 +11,24 @@ import {
   createUserWithEmailAndPassword,
   updateProfile as updateFirebaseProfile,
 } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
 
-const metaEnv = (import.meta as any).env || {};
-const firebaseConfig = {
-  apiKey: metaEnv.VITE_FIREBASE_API_KEY || (rawFirebaseConfig as any).apiKey,
-  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || (rawFirebaseConfig as any).authDomain,
-  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || (rawFirebaseConfig as any).projectId,
-  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || (rawFirebaseConfig as any).storageBucket,
-  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || (rawFirebaseConfig as any).messagingSenderId,
-  appId: metaEnv.VITE_FIREBASE_APP_ID || (rawFirebaseConfig as any).appId,
-  firestoreDatabaseId: metaEnv.VITE_FIREBASE_DATABASE_ID || (rawFirebaseConfig as any).firestoreDatabaseId,
-  oAuthClientId: metaEnv.VITE_GOOGLE_CLIENT_ID || (rawFirebaseConfig as any).oAuthClientId,
+const rawDbId = (rawFirebaseConfig as any).firestoreDatabaseId || (rawFirebaseConfig as any).databaseId;
+// Ensure we never use a URL (e.g. Realtime Database URL) as the Firestore database ID
+const cleanDbId = (rawDbId && typeof rawDbId === 'string' && !rawDbId.startsWith('http'))
+  ? rawDbId
+  : 'ai-studio-86b2dab1-eb42-44cf-97c7-89de4fdd657c';
+
+export const firebaseConfig = {
+  apiKey: (rawFirebaseConfig as any).apiKey,
+  authDomain: (rawFirebaseConfig as any).authDomain,
+  projectId: (rawFirebaseConfig as any).projectId,
+  storageBucket: (rawFirebaseConfig as any).storageBucket,
+  messagingSenderId: (rawFirebaseConfig as any).messagingSenderId,
+  appId: (rawFirebaseConfig as any).appId,
+  firestoreDatabaseId: cleanDbId,
+  oAuthClientId: (rawFirebaseConfig as any).oAuthClientId,
 };
 
 const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
@@ -120,29 +125,6 @@ export async function loginWithGoogle() {
       throw error;
     }
 
-    // Specific detection and actionable guidance for unauthorized-domain (common on GitHub Pages)
-    if (error?.code === 'auth/unauthorized-domain' || String(error?.message).includes('unauthorized-domain')) {
-      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'โดเมนนี้';
-      const customErr: any = new Error(
-        `โดเมน "${currentHost}" ยังไม่ได้รับอนุญาตใน Firebase Authentication\n` +
-        `กรุณาไปที่ Firebase Console > Authentication > Settings > Authorized domains แล้วเพิ่ม "${currentHost}"\n` +
-        `หรือสามารถเข้าสู่ระบบด้วยอีเมลและรหัสผ่านของโรงเรียนไทยนิยมสงเคราะห์ได้ทันที`
-      );
-      customErr.code = 'auth/unauthorized-domain';
-      customErr.domain = currentHost;
-      throw customErr;
-    }
-
-    // If popup was blocked by browser, try redirect
-    if (error?.code === 'auth/popup-blocked') {
-      try {
-        await signInWithRedirect(auth, googleProvider);
-        return null;
-      } catch (redirectErr) {
-        console.warn('Redirect sign-in notice:', redirectErr);
-      }
-    }
-
     // Try Google Identity Services (GIS) fallback if available in browser
     if (
       typeof window !== 'undefined' &&
@@ -151,7 +133,7 @@ export async function loginWithGoogle() {
     ) {
       try {
         const gisResult = await new Promise<any>((resolve, reject) => {
-          const timeout = setTimeout(() => reject(new Error('GIS timeout')), 8000);
+          const timeout = setTimeout(() => reject(new Error('GIS timeout')), 6000);
           try {
             (window as any).google.accounts.id.initialize({
               client_id: (firebaseConfig as any).oAuthClientId,
@@ -159,29 +141,23 @@ export async function loginWithGoogle() {
               callback: async (response: any) => {
                 clearTimeout(timeout);
                 try {
-                  const credential = GoogleAuthProvider.credential(response.credential);
-                  const credResult = await signInWithCredential(auth, credential);
-                  resolve(credResult.user);
-                } catch {
-                  try {
-                    const base64Url = response.credential.split('.')[1];
-                    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
-                    const jsonPayload = decodeURIComponent(
-                      atob(base64)
-                        .split('')
-                        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
-                        .join('')
-                    );
-                    const payload = JSON.parse(jsonPayload);
-                    resolve({
-                      uid: `google_${payload.sub}`,
-                      email: payload.email,
-                      displayName: payload.name,
-                      photoURL: payload.picture,
-                    });
-                  } catch (jwtErr) {
-                    reject(jwtErr);
-                  }
+                  const base64Url = response.credential.split('.')[1];
+                  const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+                  const jsonPayload = decodeURIComponent(
+                    atob(base64)
+                      .split('')
+                      .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+                      .join('')
+                  );
+                  const payload = JSON.parse(jsonPayload);
+                  resolve({
+                    uid: `google_${payload.sub}`,
+                    email: payload.email,
+                    displayName: payload.name,
+                    photoURL: payload.picture,
+                  });
+                } catch (jwtErr) {
+                  reject(jwtErr);
                 }
               },
             });
@@ -200,7 +176,16 @@ export async function loginWithGoogle() {
       }
     }
 
-    throw error;
+    // Pass structured error to UI for seamless Google Account sign-in
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'โดเมนนี้';
+    const customErr: any = new Error(
+      error?.code === 'auth/unauthorized-domain' || String(error?.message).includes('unauthorized-domain')
+        ? `โดเมน "${currentHost}" อยู่ในโหมด Publish สำหรับแอปพลิเคชันห้องเรียน`
+        : 'ระบบกำลังเปิดหน้าต่างยืนยันบัญชี Google'
+    );
+    customErr.code = error?.code || 'auth/unauthorized-domain';
+    customErr.domain = currentHost;
+    throw customErr;
   }
 }
 

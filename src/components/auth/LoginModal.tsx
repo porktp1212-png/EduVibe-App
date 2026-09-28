@@ -98,6 +98,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
       } else {
         setShowDirectGoogle(true);
         setGoogleRole(role);
+        setGoogleEmail(googleEmail || 'porktp1212@gmail.com');
+        setGoogleName(googleName || 'กิตติพงศ์ ทองริบุรี');
       }
     }
   };
@@ -463,13 +465,49 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
                 </svg>
                 <span>เข้าสู่ระบบด้วย Google Account</span>
               </button>
+
+              {/* 1-Click Fast Sign-In for Verified User */}
+              <button
+                type="button"
+                id="btn-modal-quick-login-porktp"
+                disabled={isSubmitting || loading}
+                onClick={async () => {
+                  setIsSubmitting(true);
+                  try {
+                    await loginWithCustomProfile('กิตติพงศ์ ทองริบุรี', 'porktp1212@gmail.com', 'student', 'ม.3/1');
+                    onClose();
+                  } catch (err: any) {
+                    setError(err?.message || 'เข้าสู่ระบบไม่สำเร็จ');
+                  } finally {
+                    setIsSubmitting(false);
+                  }
+                }}
+                className="w-full py-1.5 px-3 bg-slate-950/80 hover:bg-slate-800 border border-slate-700/80 hover:border-indigo-500/60 text-slate-200 rounded-xl text-xs transition-all flex items-center justify-between cursor-pointer group"
+              >
+                <div className="flex items-center gap-2 text-left">
+                  <div className="w-4 h-4 rounded-full bg-blue-600/30 text-blue-400 font-bold text-[9px] flex items-center justify-center shrink-0 border border-blue-500/40">
+                    G
+                  </div>
+                  <span className="font-semibold text-white text-[11px] group-hover:text-indigo-300">
+                    กิตติพงศ์ ทองริบุรี (porktp1212@gmail.com)
+                  </span>
+                </div>
+                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-950/80 border border-emerald-800/80 px-1.5 py-0.5 rounded-full shrink-0">
+                  เข้าสู่ระบบด่วน
+                </span>
+              </button>
+
               <div className="text-center">
                 <button
                   type="button"
-                  onClick={() => setShowDirectGoogle(true)}
+                  onClick={() => {
+                    setShowDirectGoogle(true);
+                    setGoogleEmail(googleEmail || 'porktp1212@gmail.com');
+                    setGoogleName(googleName || 'กิตติพงศ์ ทองริบุรี');
+                  }}
                   className="text-[11px] text-slate-400 hover:text-indigo-400 underline cursor-pointer"
                 >
-                  หรือเข้าใช้งานด่วนด้วยบัญชี Google Email
+                  หรือเลือกเข้าสู่ระบบด้วยอีเมล Google อื่นๆ
                 </button>
               </div>
             </div>

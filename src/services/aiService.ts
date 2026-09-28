@@ -286,10 +286,21 @@ export async function evaluateSubmissionWithAI(params: {
         { title: 'ความเรียบร้อยและการสื่อสาร', maxScore: Math.max(1, maxScore - Math.round(maxScore * 0.5) - Math.round(maxScore * 0.3)) },
       ];
 
+  // Clean up files payload: if url is present, server can read from disk directly
+  const safeFiles = Array.isArray(params.files)
+    ? params.files.map((f) => ({
+        name: f.name,
+        type: f.type,
+        url: f.url,
+        // Only include data if no server URL and data length is reasonable
+        data: f.url ? undefined : (f.data && f.data.length < 5000000 ? f.data : undefined),
+      }))
+    : undefined;
+
   // Step 1: Server endpoint
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 50000);
 
     const resp = await fetch('/api/ai/evaluate-submission', {
       method: 'POST',
@@ -300,7 +311,7 @@ export async function evaluateSubmissionWithAI(params: {
         studentSubmission: params.studentSubmission,
         maxScore,
         rubrics,
-        files: params.files,
+        files: safeFiles,
       }),
       signal: controller.signal,
     });
@@ -313,8 +324,8 @@ export async function evaluateSubmissionWithAI(params: {
         return data;
       }
     }
-  } catch {
-    // Network / static host fallback
+  } catch (serverErr) {
+    console.warn('Server evaluate-submission notice:', serverErr);
   }
 
   // Step 2: Client Gemini SDK
