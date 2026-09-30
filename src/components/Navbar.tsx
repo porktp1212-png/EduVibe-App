@@ -18,6 +18,7 @@ import {
   KeyRound,
   User,
   Camera,
+  Shield,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -67,8 +68,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               <p className="text-xs text-slate-500 hidden sm:block">ระบบจัดการเรียนรู้อัจฉริยะ (Thainiyom Smart LMS)</p>
             </div>
 
-            {/* Classroom Selector Dropdown */}
-            {classrooms.length > 0 && (
+            {/* Admin Badge */}
+            {currentUser?.role === 'admin' ? (
+              <div className="hidden md:flex items-center gap-2 ml-2 sm:ml-4 px-3 py-1.5 rounded-xl bg-purple-50 text-purple-700 text-xs font-bold border border-purple-200">
+                <Shield className="w-3.5 h-3.5 text-purple-600" />
+                <span>โหมดผู้ดูแลระบบกลาง ({classrooms.length} ห้องเรียน)</span>
+              </div>
+            ) : classrooms.length > 0 ? (
+              /* Classroom Selector Dropdown for Teacher & Student */
               <div className="relative ml-2 sm:ml-4">
                 <button
                   type="button"
@@ -144,7 +151,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </div>
                 )}
               </div>
-            )}
+            ) : null}
 
             {/* Quick Action Button Next to Dropdown */}
             {(currentUser?.role === 'teacher' || currentUser?.role === 'admin') && onOpenCreateClassroom && (

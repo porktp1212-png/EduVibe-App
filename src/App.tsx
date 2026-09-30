@@ -60,6 +60,7 @@ import {
   Users,
   Shield,
   School,
+  FileSpreadsheet,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -87,7 +88,7 @@ const AppContent: React.FC = () => {
   }, [activeTab]);
 
   useEffect(() => {
-    if (currentUser?.role === 'admin' && activeTab === 'dashboard') {
+    if (currentUser?.role === 'admin' && (activeTab === 'dashboard' || !activeTab.startsWith('admin-'))) {
       setActiveTab('admin-dashboard');
     }
   }, [currentUser?.role]);
@@ -260,22 +261,13 @@ const AppContent: React.FC = () => {
     highlight?: boolean;
   }
 
-  // Navigation Items per Role
+  // Navigation Items per Role (Only essential administrator duties)
   const adminTabs: TabItem[] = [
-    { id: 'admin-dashboard', label: 'แดชบอร์ดแอดมิน & รายงาน', icon: Shield },
-    { id: 'all-classrooms', label: `ตรวจห้องเรียน (${classrooms.length})`, icon: School },
-    ...(activeClassroom ? [
-      { id: 'attendance', label: 'เช็คชื่อ', icon: CalendarCheck },
-      {
-        id: 'assignments',
-        label: 'การบ้าน & ตรวจงาน',
-        icon: FileCheck2,
-        badge: pendingSubmissionsCount > 0 ? pendingSubmissionsCount : undefined,
-      },
-      { id: 'lessons', label: 'บทเรียน & สื่อ', icon: FolderOpen },
-      { id: 'behaviors', label: 'พฤติกรรม', icon: HeartHandshake },
-    ] : []),
-    { id: 'chat', label: 'แชท & ประกาศโรงเรียน', icon: MessageSquare },
+    { id: 'admin-dashboard', label: 'ภาพรวม & สถิติ', icon: LayoutDashboard },
+    { id: 'admin-users', label: 'จัดการผู้ใช้งาน', icon: Users },
+    { id: 'admin-classrooms', label: `กำกับห้องเรียน (${classrooms.length})`, icon: School },
+    { id: 'admin-reports', label: 'สรุปรายงาน Google Sheets', icon: FileSpreadsheet },
+    { id: 'admin-settings', label: 'ประกาศ & ตั้งค่าระบบ', icon: Settings },
   ];
 
   const teacherTabs: TabItem[] = [
@@ -398,97 +390,33 @@ const AppContent: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {/* Admin Views */}
+        {/* Admin Views - strictly essential administrator responsibilities */}
         {isAdmin && (
-          <>
-            {activeTab === 'admin-dashboard' && (
-              <AdminDashboard
-                currentUser={currentUser}
-                classrooms={classrooms}
-                assignments={assignments}
-                submissions={submissions}
-                onSelectClassroom={(c) => {
-                  setActiveClassroom(c);
-                  setActiveTab('all-classrooms');
-                }}
-                onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
-              />
-            )}
-
-            {activeTab === 'all-classrooms' && (
-              <div className="space-y-6">
-                {activeClassroom ? (
-                  <TeacherDashboard
-                    classroom={activeClassroom}
-                    assignments={assignments}
-                    submissions={submissions}
-                    attendanceRecords={attendanceRecords}
-                    behaviors={behaviors}
-                    quizzes={quizzes}
-                    studentCount={classroomStudents.length}
-                    onNavigateTab={(tab) => {
-                      if (tab === 'students') {
-                        setIsClassManagerOpen(true);
-                      } else {
-                        setActiveTab(tab);
-                      }
-                    }}
-                    onOpenGradingModal={handleOpenGradingModal}
-                    onOpenSkillModal={handleOpenSkillModal}
-                    onOpenClassroomSettings={() => setIsClassManagerOpen(true)}
-                    onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
-                  />
-                ) : (
-                  <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 shadow-2xs">
-                    <School className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                    <p className="text-sm font-bold text-slate-700">ยังไม่ได้เลือกห้องเรียนที่ต้องการตรวจสอบ</p>
-                    <p className="text-xs text-slate-400 mt-1">สามารถเลือกห้องเรียนได้จากแดชบอร์ดแอดมิน หรือจากเมนูด้านบน</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'attendance' && (
-              <AttendanceManager
-                classroom={activeClassroom}
-                attendanceRecords={attendanceRecords}
-                students={classroomStudents}
-              />
-            )}
-
-            {activeTab === 'assignments' && (
-              <AssignmentManager
-                classroom={activeClassroom}
-                assignments={assignments}
-                submissions={submissions}
-                students={classroomStudents}
-                onOpenGradingModal={handleOpenGradingModal}
-              />
-            )}
-
-            {activeTab === 'lessons' && (
-              <LessonRepository
-                classroom={activeClassroom}
-                lessons={lessons}
-                isTeacher={true}
-              />
-            )}
-
-            {activeTab === 'behaviors' && (
-              <BehaviorManager
-                classroom={activeClassroom}
-                behaviors={behaviors}
-                students={classroomStudents}
-              />
-            )}
-
-            {activeTab === 'chat' && (
-              <ClassroomChat
-                classroom={activeClassroom}
-                currentUser={currentUser}
-              />
-            )}
-          </>
+          <AdminDashboard
+            currentUser={currentUser}
+            classrooms={classrooms}
+            assignments={assignments}
+            submissions={submissions}
+            currentTab={
+              activeTab === 'admin-users'
+                ? 'users'
+                : activeTab === 'admin-classrooms'
+                ? 'classrooms'
+                : activeTab === 'admin-reports'
+                ? 'reports'
+                : activeTab === 'admin-settings'
+                ? 'settings'
+                : 'overview'
+            }
+            onTabChange={(tab) => {
+              if (tab === 'overview') setActiveTab('admin-dashboard');
+              else if (tab === 'users') setActiveTab('admin-users');
+              else if (tab === 'classrooms') setActiveTab('admin-classrooms');
+              else if (tab === 'reports') setActiveTab('admin-reports');
+              else if (tab === 'settings') setActiveTab('admin-settings');
+            }}
+            onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
+          />
         )}
 
         {/* Teacher Views */}

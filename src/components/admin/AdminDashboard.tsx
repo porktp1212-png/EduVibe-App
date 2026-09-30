@@ -35,6 +35,11 @@ import {
   X,
   KeyRound,
   IdCard,
+  LayoutDashboard,
+  Activity,
+  Clock,
+  ArrowUpRight,
+  CheckSquare,
 } from 'lucide-react';
 import type { UserProfile, Classroom, UserRole, Assignment, Submission } from '../../types';
 import {
@@ -45,12 +50,16 @@ import {
   createClassroom,
 } from '../../services/firestoreService';
 
+export type AdminTabType = 'overview' | 'users' | 'classrooms' | 'reports' | 'settings';
+
 interface AdminDashboardProps {
   currentUser: UserProfile;
   classrooms: Classroom[];
   assignments: Assignment[];
   submissions: Submission[];
-  onSelectClassroom: (classroom: Classroom) => void;
+  currentTab?: AdminTabType;
+  onTabChange?: (tab: AdminTabType) => void;
+  onSelectClassroom?: (classroom: Classroom) => void;
   onOpenCreateClassroom?: () => void;
 }
 
@@ -61,14 +70,31 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   classrooms,
   assignments,
   submissions,
+  currentTab,
+  onTabChange,
   onSelectClassroom,
   onOpenCreateClassroom,
 }) => {
-  const [activeTab, setActiveTab] = useState<'users' | 'classrooms' | 'reports' | 'settings'>('users');
+  const [activeTab, setActiveTab] = useState<AdminTabType>(currentTab || 'overview');
+  const [supervisionClassroom, setSupervisionClassroom] = useState<Classroom | null>(null);
+  const [supervisionTab, setSupervisionTab] = useState<'students' | 'assignments'>('students');
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'all' | 'teacher' | 'student' | 'admin'>('all');
   const [isRefreshing, setIsRefreshing] = useState(false);
+
+  useEffect(() => {
+    if (currentTab && currentTab !== activeTab) {
+      setActiveTab(currentTab);
+    }
+  }, [currentTab]);
+
+  const switchTab = (tab: AdminTabType) => {
+    setActiveTab(tab);
+    if (onTabChange) {
+      onTabChange(tab);
+    }
+  };
 
   // Modals & Drawers
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
@@ -813,7 +839,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       <div className="flex border-b border-slate-200 space-x-2 sm:space-x-4 overflow-x-auto no-scrollbar">
         <button
           type="button"
-          onClick={() => setActiveTab('users')}
+          onClick={() => switchTab('overview')}
+          className={`py-3 px-4 font-bold text-xs sm:text-sm border-b-2 flex items-center gap-2 cursor-pointer transition-colors shrink-0 ${
+            activeTab === 'overview'
+              ? 'border-purple-600 text-purple-700'
+              : 'border-transparent text-slate-500 hover:text-slate-900'
+          }`}
+        >
+          <LayoutDashboard className="w-4 h-4" />
+          <span>ภาพรวมระบบ & สถิติ</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => switchTab('users')}
           className={`py-3 px-4 font-bold text-xs sm:text-sm border-b-2 flex items-center gap-2 cursor-pointer transition-colors shrink-0 ${
             activeTab === 'users'
               ? 'border-purple-600 text-purple-700'
@@ -826,7 +865,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         <button
           type="button"
-          onClick={() => setActiveTab('classrooms')}
+          onClick={() => switchTab('classrooms')}
           className={`py-3 px-4 font-bold text-xs sm:text-sm border-b-2 flex items-center gap-2 cursor-pointer transition-colors shrink-0 ${
             activeTab === 'classrooms'
               ? 'border-purple-600 text-purple-700'
@@ -834,12 +873,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <School className="w-4 h-4" />
-          <span>ห้องเรียนทั้งหมด ({classrooms.length})</span>
+          <span>กำกับดูแลห้องเรียน ({classrooms.length})</span>
         </button>
 
         <button
           type="button"
-          onClick={() => setActiveTab('reports')}
+          onClick={() => switchTab('reports')}
           className={`py-3 px-4 font-bold text-xs sm:text-sm border-b-2 flex items-center gap-2 cursor-pointer transition-colors shrink-0 ${
             activeTab === 'reports'
               ? 'border-emerald-600 text-emerald-700'
@@ -852,7 +891,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
         <button
           type="button"
-          onClick={() => setActiveTab('settings')}
+          onClick={() => switchTab('settings')}
           className={`py-3 px-4 font-bold text-xs sm:text-sm border-b-2 flex items-center gap-2 cursor-pointer transition-colors shrink-0 ${
             activeTab === 'settings'
               ? 'border-purple-600 text-purple-700'
@@ -860,9 +899,223 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           }`}
         >
           <Settings className="w-4 h-4" />
-          <span>ตั้งค่าระบบ & ประกาศโรงเรียน</span>
+          <span>ประกาศ & ตั้งค่าระบบ</span>
         </button>
       </div>
+
+      {/* ========================================================= */}
+      {/* TAB 0: OVERVIEW & ANALYTICS (ภาพรวมระบบและสถิติ) */}
+      {/* ========================================================= */}
+      {activeTab === 'overview' && (
+        <div className="space-y-6">
+          {/* Quick Actions Panel */}
+          <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <Shield className="w-4 h-4 text-purple-600" />
+                  <span>งานจำเป็นของผู้ดูแลระบบ (Essential Admin Responsibilities)</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  เครื่องมือกำกับดูแลส่วนกลาง จัดการผู้ใช้งาน ควบคุมห้องเรียน สรุปรายงาน Google Sheets และประกาศโรงเรียน
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setUserFormError(null);
+                  setUserFormSuccess(null);
+                  setIsAddUserOpen(true);
+                }}
+                className="p-3.5 rounded-2xl bg-purple-50 hover:bg-purple-100/80 border border-purple-200/80 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-xl bg-purple-600 text-white flex items-center justify-center mb-2 shadow-xs group-hover:scale-105 transition-transform">
+                  <Plus className="w-4 h-4" />
+                </div>
+                <div className="text-xs font-bold text-purple-950">เพิ่มผู้ใช้งานใหม่</div>
+                <div className="text-[11px] text-purple-700/80 mt-0.5">สร้างบัญชีครูหรือนักเรียน</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (onOpenCreateClassroom) {
+                    onOpenCreateClassroom();
+                  } else {
+                    setIsCreateClassModalOpen(true);
+                  }
+                }}
+                className="p-3.5 rounded-2xl bg-blue-50 hover:bg-blue-100/80 border border-blue-200/80 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-xl bg-blue-600 text-white flex items-center justify-center mb-2 shadow-xs group-hover:scale-105 transition-transform">
+                  <School className="w-4 h-4" />
+                </div>
+                <div className="text-xs font-bold text-blue-950">สร้างห้องเรียนใหม่</div>
+                <div className="text-[11px] text-blue-700/80 mt-0.5">เปิดวิชาและมอบหมายครู</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => switchTab('reports')}
+                className="p-3.5 rounded-2xl bg-emerald-50 hover:bg-emerald-100/80 border border-emerald-200/80 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-xl bg-emerald-600 text-white flex items-center justify-center mb-2 shadow-xs group-hover:scale-105 transition-transform">
+                  <FileSpreadsheet className="w-4 h-4" />
+                </div>
+                <div className="text-xs font-bold text-emerald-950">สรุปรายงานชีต</div>
+                <div className="text-[11px] text-emerald-700/80 mt-0.5">ส่งออก Google Sheets 4 รายงาน</div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => switchTab('settings')}
+                className="p-3.5 rounded-2xl bg-amber-50 hover:bg-amber-100/80 border border-amber-200/80 text-left transition-all group cursor-pointer"
+              >
+                <div className="w-8 h-8 rounded-xl bg-amber-600 text-white flex items-center justify-center mb-2 shadow-xs group-hover:scale-105 transition-transform">
+                  <Megaphone className="w-4 h-4" />
+                </div>
+                <div className="text-xs font-bold text-amber-950">ประกาศโรงเรียน</div>
+                <div className="text-[11px] text-amber-700/80 mt-0.5">กระจายข่าวสารส่วนกลาง</div>
+              </button>
+            </div>
+          </div>
+
+          {/* Two-Column Overview Panels */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Left: Classrooms Supervision Overview */}
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-blue-100 text-blue-700 flex items-center justify-center">
+                      <School className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900">กำกับดูแลห้องเรียนล่าสุด</h4>
+                      <p className="text-[11px] text-slate-500">ห้องเรียนที่เปิดการเรียนการสอนในโรงเรียน</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => switchTab('classrooms')}
+                    className="text-xs font-bold text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>ดูทั้งหมด ({classrooms.length})</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="mt-3 divide-y divide-slate-100">
+                  {classrooms.slice(0, 4).map((c) => {
+                    const classAssignments = assignments.filter((a) => a.classroomId === c.id);
+                    return (
+                      <div key={c.id} className="py-2.5 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-slate-900 truncate">{c.name}</span>
+                            <span className="text-[10px] font-mono px-1.5 py-0.2 bg-slate-100 text-slate-600 rounded">
+                              {c.code}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 mt-0.5">
+                            ครู: <span className="text-slate-700 font-medium">{c.teacherName}</span> • นักเรียน{' '}
+                            {c.studentIds?.length || 0} คน • {classAssignments.length} การบ้าน
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setSupervisionClassroom(c)}
+                          className="px-2.5 py-1 bg-slate-100 hover:bg-blue-50 text-slate-700 hover:text-blue-700 rounded-lg text-xs font-semibold shrink-0 transition-colors cursor-pointer"
+                        >
+                          ตรวจข้อมูล
+                        </button>
+                      </div>
+                    );
+                  })}
+                  {classrooms.length === 0 && (
+                    <div className="py-6 text-center text-xs text-slate-400">ยังไม่มีห้องเรียนในระบบ</div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Right: User Management Overview */}
+            <div className="bg-white rounded-3xl p-5 border border-slate-200 shadow-2xs flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
+                      <Users className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-bold text-sm text-slate-900">ผู้ใช้งานในระบบ</h4>
+                      <p className="text-[11px] text-slate-500">บัญชีครูและนักเรียนโรงเรียนไทยนิยมสงเคราะห์</p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => switchTab('users')}
+                    className="text-xs font-bold text-purple-600 hover:text-purple-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    <span>ดูทั้งหมด ({allUsers.length})</span>
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+
+                <div className="mt-3 divide-y divide-slate-100">
+                  {allUsers.slice(0, 4).map((u) => (
+                    <div key={u.id} className="py-2.5 flex items-center justify-between gap-3">
+                      <div className="min-w-0 flex items-center gap-2.5">
+                        <div
+                          className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
+                            u.role === 'admin'
+                              ? 'bg-purple-100 text-purple-700'
+                              : u.role === 'teacher'
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : 'bg-teal-100 text-teal-700'
+                          }`}
+                        >
+                          {u.name.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-bold text-xs text-slate-900 truncate">{u.name}</div>
+                          <div className="text-[11px] text-slate-500 truncate">{u.email}</div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            u.role === 'admin'
+                              ? 'bg-purple-100 text-purple-700'
+                              : u.role === 'teacher'
+                              ? 'bg-indigo-100 text-indigo-700'
+                              : 'bg-teal-100 text-teal-700'
+                          }`}
+                        >
+                          {u.role === 'admin' ? 'แอดมิน' : u.role === 'teacher' ? 'คุณครู' : 'นักเรียน'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleViewUser(u)}
+                          className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+                        >
+                          ดูประวัติ
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                  {allUsers.length === 0 && (
+                    <div className="py-6 text-center text-xs text-slate-400">ยังไม่มีผู้ใช้งานในระบบ</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================= */}
       {/* TAB 1: USER MANAGEMENT */}
@@ -1121,11 +1374,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
                     <button
                       type="button"
-                      onClick={() => onSelectClassroom(c)}
+                      onClick={() => setSupervisionClassroom(c)}
                       className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 cursor-pointer"
                     >
-                      <span>เข้าตรวจห้องเรียน</span>
-                      <ExternalLink className="w-3.5 h-3.5" />
+                      <Eye className="w-3.5 h-3.5" />
+                      <span>ตรวจสอบข้อมูลห้องเรียน</span>
                     </button>
                     <button
                       type="button"
@@ -2238,6 +2491,198 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================= */}
+      {/* MODAL: CLASSROOM SUPERVISION (กำกับดูแลและตรวจสอบห้องเรียน) */}
+      {/* ========================================================= */}
+      {supervisionClassroom && (
+        <div
+          id="modal-supervision-classroom-overlay"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn"
+        >
+          <div
+            id="modal-supervision-classroom-card"
+            className="w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-8 max-h-[90vh] flex flex-col"
+          >
+            {/* Header */}
+            <div className="p-5 bg-gradient-to-r from-blue-700 via-indigo-700 to-purple-800 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-white/15 flex items-center justify-center shadow-inner">
+                  <School className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <div className="text-[11px] font-bold text-blue-200 uppercase tracking-wider">
+                    กำกับดูแลห้องเรียน (Classroom Supervision)
+                  </div>
+                  <h3 className="font-bold text-base sm:text-lg">{supervisionClassroom.name}</h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSupervisionClassroom(null)}
+                className="p-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Info Summary Strip */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs shrink-0">
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">วิชาที่สอน</span>
+                <span className="font-bold text-slate-800">{supervisionClassroom.subject}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">ครูผู้สอน</span>
+                <span className="font-bold text-slate-800">{supervisionClassroom.teacherName}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">รหัสห้องเรียน</span>
+                <span className="font-mono font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded">
+                  {supervisionClassroom.code}
+                </span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-bold">ตารางเรียน</span>
+                <span className="font-medium text-slate-700">{supervisionClassroom.schedule}</span>
+              </div>
+            </div>
+
+            {/* Sub-Tabs for Classroom Details */}
+            <div className="flex border-b border-slate-200 px-5 pt-2 bg-white shrink-0">
+              <button
+                type="button"
+                onClick={() => setSupervisionTab('students')}
+                className={`py-2 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                  supervisionTab === 'students'
+                    ? 'border-blue-600 text-blue-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                นักเรียนในห้อง ({supervisionClassroom.studentIds?.length || 0} คน)
+              </button>
+              <button
+                type="button"
+                onClick={() => setSupervisionTab('assignments')}
+                className={`py-2 px-3 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+                  supervisionTab === 'assignments'
+                    ? 'border-blue-600 text-blue-700'
+                    : 'border-transparent text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                ภาระงาน & การบ้าน ({assignments.filter((a) => a.classroomId === supervisionClassroom.id).length} งาน)
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 overflow-y-auto flex-1 space-y-3">
+              {supervisionTab === 'students' ? (
+                <div>
+                  {allUsers.filter(
+                    (u) =>
+                      u.role === 'student' &&
+                      (supervisionClassroom.studentIds?.includes(u.id) ||
+                        (u.grade && supervisionClassroom.name.includes(u.grade)))
+                  ).length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400">
+                      ยังไม่มีนักเรียนลงทะเบียนในห้องเรียนนี้
+                      <p className="mt-1 text-[11px] text-slate-500">
+                        นักเรียนสามารถเข้าร่วมห้องเรียนได้โดยใช้รหัส <strong>{supervisionClassroom.code}</strong>
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {allUsers
+                        .filter(
+                          (u) =>
+                            u.role === 'student' &&
+                            (supervisionClassroom.studentIds?.includes(u.id) ||
+                              (u.grade && supervisionClassroom.name.includes(u.grade)))
+                        )
+                        .map((s, idx) => (
+                          <div key={s.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-5 text-slate-400 font-mono text-[11px]">{idx + 1}.</span>
+                              <div>
+                                <div className="font-bold text-slate-800">{s.name}</div>
+                                <div className="text-[10px] text-slate-400">
+                                  รหัส: {s.studentId || '-'} • ระดับชั้น: {s.grade || '-'}
+                                </div>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">
+                                {s.totalPoints || 0} แต้ม (Lv.{s.level || 1})
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  {assignments.filter((a) => a.classroomId === supervisionClassroom.id).length === 0 ? (
+                    <div className="p-8 text-center text-xs text-slate-400">
+                      คุณครูผู้สอนยังไม่ได้มอบหมายภาระงานในห้องเรียนนี้
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-slate-100">
+                      {assignments
+                        .filter((a) => a.classroomId === supervisionClassroom.id)
+                        .map((a, idx) => {
+                          const asgSubs = submissions.filter((s) => s.assignmentId === a.id);
+                          return (
+                            <div key={a.id} className="py-2.5 flex items-center justify-between gap-3 text-xs">
+                              <div className="min-w-0">
+                                <div className="font-bold text-slate-800 truncate">
+                                  {idx + 1}. {a.title}
+                                </div>
+                                <div className="text-[10px] text-slate-400 mt-0.5">
+                                  คะแนนเต็ม: {a.maxScore || 10} • กำหนดส่ง:{' '}
+                                  {a.dueDate ? new Date(a.dueDate).toLocaleDateString('th-TH') : 'ไม่มีกำหนด'}
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                                  ส่งแล้ว {asgSubs.length} ชิ้น
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const target = supervisionClassroom;
+                  setSupervisionClassroom(null);
+                  handleDeleteClassroomPrompt(target);
+                }}
+                className="px-3 py-1.5 text-xs text-rose-600 hover:text-rose-700 hover:bg-rose-50 rounded-xl font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>ลบห้องเรียนนี้</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSupervisionClassroom(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                ปิดหน้าต่าง
+              </button>
             </div>
           </div>
         </div>
