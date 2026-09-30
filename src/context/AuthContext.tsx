@@ -25,6 +25,7 @@ interface RegisterParams {
   grade?: string;
   studentId?: string;
   subject?: string;
+  department?: string;
 }
 
 interface AuthContextType {
@@ -66,6 +67,18 @@ const DEMO_STUDENT: UserProfile = {
   totalPoints: 520,
   level: 3,
   streakDays: 7,
+  createdAt: new Date().toISOString(),
+};
+
+export const DEMO_ADMIN: UserProfile = {
+  id: 'admin_thainiyom_01',
+  email: 'admin@thainiyom.ac.th',
+  name: 'ผู้ดูแลระบบกลาง (Admin)',
+  role: 'admin',
+  department: 'ศูนย์เทคโนโลยีและสารสนเทศ โรงเรียนไทยนิยมสงเคราะห์',
+  avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80',
+  totalPoints: 9999,
+  level: 99,
   createdAt: new Date().toISOString(),
 };
 
@@ -173,6 +186,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       // Quick Demo Shortcuts (Thainiyom School)
       if (
+        cleanLower === 'admin@thainiyom.ac.th' ||
+        cleanLower === 'admin'
+      ) {
+        setCurrentUser(DEMO_ADMIN);
+        localStorage.setItem('eduvibe_current_user', JSON.stringify(DEMO_ADMIN));
+        await saveUserProfile(DEMO_ADMIN);
+        return;
+      }
+      if (
         cleanLower === 'somchai.teacher@thainiyom.ac.th' ||
         cleanLower === 'somchai.teacher@school.ac.th' ||
         cleanLower === 'somchai' ||
@@ -215,10 +237,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 2. Query Firestore / local cache for matching account by email, studentId, or ID
       if (!profile) {
         profile = await getUserByEmailOrStudentId(cleanInput);
+        if (!profile && !cleanLower.includes('@')) {
+          profile = await getUserByEmailOrStudentId(`${cleanLower}@thainiyom.ac.th`);
+        }
+
         if (profile) {
           // If profile has stored password, verify it
           if (profile.password && profile.password !== pass) {
             throw new Error('รหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
+          }
+          // If profile didn't have password set yet, save it now for seamless future logins
+          if (!profile.password) {
+            profile.password = pass;
+            saveUserProfile(profile).catch(() => {});
           }
         }
       }
@@ -226,10 +257,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (!profile) {
         if (authError?.code === 'auth/wrong-password' || authError?.code === 'auth/invalid-credential') {
           throw new Error('อีเมลหรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง');
-        } else if (authError?.code === 'auth/user-not-found') {
-          throw new Error('ไม่พบบัญชีผู้ใช้นี้ในระบบ กรุณาสมัครสมาชิกใหม่');
-        } else if (authError?.code === 'auth/invalid-email') {
-          throw new Error('รูปแบบอีเมลไม่ถูกต้อง');
         } else {
           throw new Error('ไม่พบบัญชีผู้ใช้นี้ หรือรหัสผ่านไม่ถูกต้อง กรุณาตรวจสอบข้อมูลหรือสมัครสมาชิกใหม่');
         }
@@ -250,20 +277,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     grade,
     studentId,
     subject,
+    department,
   }: RegisterParams) => {
     setLoading(true);
     try {
-      const cleanEmail = email.trim().toLowerCase();
       const cleanName = name.trim();
+      let cleanInput = email.trim();
+      let cleanEmail = cleanInput.toLowerCase();
 
       if (!cleanName) throw new Error('กรุณาระบุชื่อ-นามสกุล');
-      if (!cleanEmail) throw new Error('กรุณาระบุอีเมล');
+      if (!cleanInput) throw new Error('กรุณาระบุอีเมล หรือเลขประจำตัวนักเรียน');
       if (password.length < 6) throw new Error('รหัสผ่านต้องมีความยาวอย่างน้อย 6 ตัวอักษร');
 
-      // Check if already registered in Firestore or local
+      // If user provided a username or studentId without @, standardize to school domain
+      if (!cleanEmail.includes('@')) {
+        cleanEmail = `${cleanEmail.replace(/\s+/g, '')}@thainiyom.ac.th`;
+      }
+
+      const resolvedStudentId =
+        studentId?.trim() ||
+        (/^\d+$/.test(cleanInput) ? cleanInput : `STD${Math.floor(10000 + Math.random() * 90000)}`);
+
+      // Check if user already exists in Firestore or local database
       const existing = await getUserByEmailOrStudentId(cleanEmail);
       if (existing) {
-        throw new Error('อีเมลนี้ถูกลงทะเบียนไว้ในระบบแล้ว กรุณาเข้าสู่ระบบ');
+        // Smoothly activate or update credentials and log in directly
+        const updatedProfile: UserProfile = {
+          ...existing,
+          name: cleanName || existing.name,
+          role: role || existing.role,
+          password,
+          department: role === 'admin' ? (department?.trim() || existing.department || 'ศูนย์เทคโนโลยีและสารสนเทศ โรงเรียนไทยนิยมสงเคราะห์') : existing.department,
+          grade: role === 'student' ? (grade?.trim() || existing.grade || 'ม.3/1') : existing.grade,
+          studentId: role === 'student' ? (resolvedStudentId || existing.studentId) : existing.studentId,
+          subject: role === 'teacher' ? (subject?.trim() || existing.subject || 'วิทยาศาสตร์และเทคโนโลยี') : existing.subject,
+        };
+        await saveUserProfile(updatedProfile);
+        setCurrentUser(updatedProfile);
+        localStorage.setItem('eduvibe_current_user', JSON.stringify(updatedProfile));
+        sessionStorage.removeItem('eduvibe_pending_reg');
+        return;
       }
 
       // Store pending registration parameters into sessionStorage
@@ -271,8 +324,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role,
         name: cleanName,
         grade: grade?.trim() || 'ม.3/1',
-        studentId: studentId?.trim() || `STD${Math.floor(10000 + Math.random() * 90000)}`,
+        studentId: resolvedStudentId,
         subject: subject?.trim() || 'วิทยาศาสตร์และเทคโนโลยี',
+        department: department?.trim() || 'ศูนย์เทคโนโลยีและสารสนเทศ โรงเรียนไทยนิยมสงเคราะห์',
       };
       sessionStorage.setItem('eduvibe_pending_reg', JSON.stringify(pendingData));
 
@@ -283,11 +337,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           uid = fbUser.uid;
         }
       } catch (fbErr: any) {
-        console.warn('Firebase Auth register notice:', fbErr);
-        if (fbErr.code === 'auth/email-already-in-use') {
-          sessionStorage.removeItem('eduvibe_pending_reg');
-          throw new Error('อีเมลนี้ถูกลงทะเบียนไว้ในระบบแล้ว กรุณาเข้าสู่ระบบ');
-        }
+        // Firebase Auth may have email-password disabled in console (auth/operation-not-allowed)
+        // or rate limited. We safely fallback to direct Firestore profile management.
+        console.warn('Firebase Auth register notice (using Firestore):', fbErr?.message || fbErr);
       }
 
       const newProfile: UserProfile = {
@@ -295,24 +347,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         email: cleanEmail,
         name: cleanName,
         role,
+        department: role === 'admin' ? (department?.trim() || 'ศูนย์เทคโนโลยีและสารสนเทศ โรงเรียนไทยนิยมสงเคราะห์') : undefined,
         grade: role === 'student' ? (grade?.trim() || 'ม.3/1') : undefined,
-        studentId: role === 'student' ? (studentId?.trim() || `STD${Math.floor(10000 + Math.random() * 90000)}`) : undefined,
-        subject: role === 'teacher' ? (subject?.trim() || 'วิชาทั่วไป') : undefined,
+        studentId: role === 'student' ? resolvedStudentId : undefined,
+        subject: role === 'teacher' ? (subject?.trim() || 'วิทยาศาสตร์และเทคโนโลยี') : undefined,
         password,
         avatar:
-          role === 'teacher'
+          role === 'admin'
+            ? 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&auto=format&fit=crop&q=80'
+            : role === 'teacher'
             ? 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80'
             : 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=150&auto=format&fit=crop&q=80',
-        totalPoints: role === 'student' ? 100 : 500,
-        level: 1,
+        totalPoints: role === 'admin' ? 9999 : role === 'student' ? 100 : 500,
+        level: role === 'admin' ? 99 : 1,
         streakDays: role === 'student' ? 1 : 0,
         createdAt: new Date().toISOString(),
       };
 
       await saveUserProfile(newProfile);
 
-      // New users start completely clean with zero classrooms.
-      // Teachers create their classrooms on demand, and students join using their room code.
+      // If registered as teacher, automatically create their starter classroom with ready-to-share code
+      if (role === 'teacher') {
+        const classCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        const teacherClassroom: Classroom = {
+          id: `cls_${newProfile.id}`,
+          name: `ห้องเรียน ${newProfile.name} (${newProfile.subject || 'กลุ่มสาระการเรียนรู้'})`,
+          subject: newProfile.subject || 'วิทยาศาสตร์และเทคโนโลยี',
+          code: classCode,
+          teacherId: newProfile.id,
+          teacherName: newProfile.name,
+          description: `ห้องเรียนออนไลน์วิชา${newProfile.subject || 'ทั่วไป'} โรงเรียนไทยนิยมสงเคราะห์`,
+          color: 'from-blue-600 to-indigo-700',
+          studentIds: [],
+          schedule: 'ตามตารางสอน',
+          createdAt: new Date().toISOString(),
+        };
+        try {
+          await createClassroom(teacherClassroom);
+        } catch (clsErr) {
+          console.warn('Teacher starter classroom notice:', clsErr);
+        }
+      } else if (role === 'student') {
+        try {
+          await enrollStudentInDefaultClassrooms(newProfile.id);
+        } catch (enrErr) {
+          console.warn('Student default enrollment notice:', enrErr);
+        }
+      }
 
       setCurrentUser(newProfile);
       localStorage.setItem('eduvibe_current_user', JSON.stringify(newProfile));
@@ -359,7 +440,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const loginDemo = async (role: UserRole) => {
-    const demo = role === 'teacher' ? DEMO_TEACHER : DEMO_STUDENT;
+    const demo = role === 'admin' ? DEMO_ADMIN : role === 'teacher' ? DEMO_TEACHER : DEMO_STUDENT;
     await saveUserProfile(demo);
     setCurrentUser(demo);
     localStorage.setItem('eduvibe_current_user', JSON.stringify(demo));

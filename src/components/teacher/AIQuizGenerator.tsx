@@ -46,13 +46,12 @@ export const AIQuizGenerator: React.FC<AIQuizGeneratorProps> = ({
   const [deletingQuizId, setDeletingQuizId] = useState<string | null>(null);
 
   const handleDeleteExistingQuiz = async (quizId: string) => {
-    if (!window.confirm('คุณต้องการลบแบบทดสอบนี้ใช่หรือไม่?')) return;
     try {
       setDeletingQuizId(quizId);
       await deleteQuiz(quizId);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Failed to delete quiz:', err);
-      alert('เกิดข้อผิดพลาดในการลบแบบทดสอบ');
+      setError(err?.message || 'เกิดข้อผิดพลาดในการลบแบบทดสอบ');
     } finally {
       setDeletingQuizId(null);
     }

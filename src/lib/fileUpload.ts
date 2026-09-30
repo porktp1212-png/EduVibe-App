@@ -322,7 +322,13 @@ export function downloadOrOpenFile(
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } else {
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
     }
     return;
@@ -330,16 +336,17 @@ export function downloadOrOpenFile(
 
   // Handle blob: URLs
   if (fileUrl.startsWith('blob:')) {
+    const a = document.createElement('a');
+    a.href = fileUrl;
     if (forceDownload) {
-      const a = document.createElement('a');
-      a.href = fileUrl;
       a.download = fileName || 'downloaded-file';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
     } else {
-      window.open(fileUrl, '_blank', 'noopener,noreferrer');
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
     }
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     return;
   }
 
@@ -348,14 +355,15 @@ export function downloadOrOpenFile(
     ? `${fileUrl}?download=1`
     : fileUrl;
 
+  const a = document.createElement('a');
+  a.href = targetUrl;
   if (forceDownload) {
-    const a = document.createElement('a');
-    a.href = targetUrl;
     a.download = fileName || 'downloaded-file';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
   } else {
-    window.open(targetUrl, '_blank', 'noopener,noreferrer');
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
   }
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
 }

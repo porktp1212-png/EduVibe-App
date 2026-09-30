@@ -108,7 +108,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                       </button>
                     ))}
 
-                    {currentUser?.role === 'teacher' && onOpenCreateClassroom && (
+                    {(currentUser?.role === 'teacher' || currentUser?.role === 'admin') && onOpenCreateClassroom && (
                       <div className="p-1.5 border-t border-slate-100 mt-1">
                         <button
                           type="button"
@@ -147,7 +147,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             )}
 
             {/* Quick Action Button Next to Dropdown */}
-            {currentUser?.role === 'teacher' && onOpenCreateClassroom && (
+            {(currentUser?.role === 'teacher' || currentUser?.role === 'admin') && onOpenCreateClassroom && (
               <button
                 type="button"
                 id="btn-nav-create-classroom"
@@ -181,17 +181,29 @@ export const Navbar: React.FC<NavbarProps> = ({
               <div
                 id="badge-current-role"
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shadow-xs ${
-                  currentUser.role === 'teacher'
+                  currentUser.role === 'admin'
+                    ? 'bg-purple-50 text-purple-700 border border-purple-200'
+                    : currentUser.role === 'teacher'
                     ? 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                     : 'bg-teal-50 text-teal-700 border border-teal-200'
                 }`}
               >
                 <span
                   className={`w-2 h-2 rounded-full ${
-                    currentUser.role === 'teacher' ? 'bg-indigo-600' : 'bg-teal-600'
+                    currentUser.role === 'admin'
+                      ? 'bg-purple-600'
+                      : currentUser.role === 'teacher'
+                      ? 'bg-indigo-600'
+                      : 'bg-teal-600'
                   }`}
                 ></span>
-                <span>{currentUser.role === 'teacher' ? 'คุณครูผู้สอน' : `นักเรียน (${currentUser.grade || 'ม.3'})`}</span>
+                <span>
+                  {currentUser.role === 'admin'
+                    ? 'ผู้ดูแลระบบ (Admin)'
+                    : currentUser.role === 'teacher'
+                    ? 'คุณครูผู้สอน'
+                    : `นักเรียน (${currentUser.grade || 'ม.3'})`}
+                </span>
               </div>
             )}
 
@@ -306,12 +318,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                       <div className="mt-1 flex items-center gap-1.5">
                         <span
                           className={`px-2 py-0.5 rounded-md font-semibold text-[10px] ${
-                            currentUser.role === 'teacher'
+                            currentUser.role === 'admin'
+                              ? 'bg-purple-100 text-purple-800 border border-purple-200'
+                              : currentUser.role === 'teacher'
                               ? 'bg-indigo-100 text-indigo-800'
                               : 'bg-teal-100 text-teal-800'
                           }`}
                         >
-                          {currentUser.role === 'teacher'
+                          {currentUser.role === 'admin'
+                            ? 'ผู้ดูแลระบบกลาง (Admin)'
+                            : currentUser.role === 'teacher'
                             ? `คุณครูผู้สอน ${currentUser.subject ? `• ${currentUser.subject}` : ''}`
                             : `นักเรียน ${currentUser.grade || 'ม.3'} ${currentUser.studentId ? `(${currentUser.studentId})` : ''}`}
                         </span>

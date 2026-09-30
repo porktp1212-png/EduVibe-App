@@ -57,6 +57,7 @@ export const CreateClassroomModal: React.FC<CreateClassroomModalProps> = ({
   const [schedule, setSchedule] = useState('จันทร์ 08:30 - 10:10 น.');
   const [selectedColor, setSelectedColor] = useState(COLOR_PRESETS[0].gradient);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [createdClassroom, setCreatedClassroom] = useState<Classroom | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
@@ -68,10 +69,11 @@ export const CreateClassroomModal: React.FC<CreateClassroomModalProps> = ({
     e.preventDefault();
     if (!name.trim() || !subject.trim() || !code.trim()) return;
 
+    setErrorMsg(null);
     setIsSubmitting(true);
     try {
       const teacherId = currentUser?.id || 'teacher_demo_1';
-      const teacherName = currentUser?.name || 'คุณครูผู้สอน';
+      const teacherName = currentUser?.name || (currentUser?.role === 'admin' ? 'ผู้ดูแลระบบกลาง' : 'คุณครูผู้สอน');
 
       const newClassroom: Classroom = {
         id: `cls_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
@@ -90,9 +92,9 @@ export const CreateClassroomModal: React.FC<CreateClassroomModalProps> = ({
       await createClassroom(newClassroom);
       onClassroomCreated(newClassroom);
       setCreatedClassroom(newClassroom);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error creating classroom:', error);
-      alert('เกิดข้อผิดพลาดในการสร้างห้องเรียน กรุณาลองใหม่อีกครั้ง');
+      setErrorMsg(error?.message || 'เกิดข้อผิดพลาดในการสร้างห้องเรียน กรุณาลองใหม่อีกครั้ง');
     } finally {
       setIsSubmitting(false);
     }
@@ -191,6 +193,12 @@ export const CreateClassroomModal: React.FC<CreateClassroomModalProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
+              {errorMsg && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl flex items-center gap-2">
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
               {/* Classroom Name */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">

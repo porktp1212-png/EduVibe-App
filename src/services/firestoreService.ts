@@ -170,8 +170,11 @@ export async function getUserByEmailOrStudentId(identifier: string): Promise<Use
     const snapAll = await getDocs(collection(db, 'users'));
     for (const d of snapAll.docs) {
       const data = { id: d.id, ...(d.data() as any) } as UserProfile;
+      const userEmail = (data.email || '').toLowerCase();
+      const userUsername = userEmail.includes('@') ? userEmail.split('@')[0] : '';
       if (
-        data.email?.toLowerCase() === cleanLower ||
+        userEmail === cleanLower ||
+        (userUsername && userUsername === cleanLower) ||
         data.studentId === clean ||
         data.studentId?.toLowerCase() === cleanLower ||
         data.id === clean
@@ -188,13 +191,18 @@ export async function getUserByEmailOrStudentId(identifier: string): Promise<Use
     const rawList = JSON.parse(localStorage.getItem('eduvibe_registered_users') || '[]');
     const localList: UserProfile[] = Array.isArray(rawList) ? rawList.filter((u): u is UserProfile => Boolean(u && u.id)) : [];
     const found = localList.find(
-      (u) =>
-        u && (
-          u.email?.toLowerCase() === cleanLower ||
+      (u) => {
+        if (!u) return false;
+        const uEmail = (u.email || '').toLowerCase();
+        const uUsername = uEmail.includes('@') ? uEmail.split('@')[0] : '';
+        return (
+          uEmail === cleanLower ||
+          (uUsername && uUsername === cleanLower) ||
           u.studentId === clean ||
           u.studentId?.toLowerCase() === cleanLower ||
           u.id === clean
-        )
+        );
+      }
     );
     if (found) return found;
   } catch {
@@ -224,6 +232,22 @@ export function subscribeToUsers(callback: (users: UserProfile[]) => void) {
   } catch (error) {
     handleFirestoreError(error, OperationType.LIST, path);
     return () => {};
+  }
+}
+
+export async function deleteUserProfile(userId: string): Promise<void> {
+  const path = `users/${userId}`;
+  try {
+    await deleteDoc(doc(db, 'users', userId));
+  } catch (error) {
+    console.warn('deleteUserProfile notice:', error);
+  }
+  try {
+    const rawList = JSON.parse(localStorage.getItem('eduvibe_registered_users') || '[]');
+    const localList: UserProfile[] = Array.isArray(rawList) ? rawList.filter((u) => u && u.id !== userId) : [];
+    localStorage.setItem('eduvibe_registered_users', JSON.stringify(localList));
+  } catch {
+    // ignore
   }
 }
 

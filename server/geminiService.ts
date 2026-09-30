@@ -76,7 +76,7 @@ async function callGeminiWithFallback(
     contents: any;
     config?: any;
   },
-  timeoutMs = 12000
+  timeoutMs = 15000
 ): Promise<string | null> {
   for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
     const model = CANDIDATE_MODELS[i];
@@ -95,23 +95,13 @@ async function callGeminiWithFallback(
       }
     } catch (err: any) {
       const errMsg = String(err?.message || err || "");
-      const isTemporaryDemand =
-        err?.status === 503 ||
-        errMsg.includes("503") ||
-        errMsg.includes("high demand") ||
-        errMsg.includes("UNAVAILABLE") ||
-        errMsg.includes("429") ||
-        errMsg.includes("RESOURCE_EXHAUSTED") ||
-        errMsg.includes("404") ||
-        errMsg.includes("not found");
+      console.warn(`[Gemini Fallback] Model ${model} attempt failed: ${errMsg.slice(0, 150)}`);
 
-      // Switch to next candidate model smoothly
-      if (isTemporaryDemand && i < CANDIDATE_MODELS.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 300));
+      // Try next candidate model smoothly on any error (quota, 503, 429, resource_exhausted, timeout, etc.)
+      if (i < CANDIDATE_MODELS.length - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
         continue;
       }
-
-      break;
     }
   }
   return null;

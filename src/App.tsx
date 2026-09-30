@@ -14,6 +14,7 @@ import { CreateClassroomModal } from './components/teacher/CreateClassroomModal'
 import { JoinClassroomModal } from './components/student/JoinClassroomModal';
 import { LoginPage } from './components/auth/LoginPage';
 import { AIGradingModal } from './components/teacher/AIGradingModal';
+import { AdminDashboard } from './components/admin/AdminDashboard';
 import { StudentDashboard } from './components/student/StudentDashboard';
 import { StudentAssignments } from './components/student/StudentAssignments';
 import { StudentQuizPlayer } from './components/student/StudentQuizPlayer';
@@ -57,6 +58,8 @@ import {
   Plus,
   GraduationCap,
   Users,
+  Shield,
+  School,
 } from 'lucide-react';
 
 const AppContent: React.FC = () => {
@@ -82,6 +85,12 @@ const AppContent: React.FC = () => {
       setActiveTab('dashboard');
     }
   }, [activeTab]);
+
+  useEffect(() => {
+    if (currentUser?.role === 'admin' && activeTab === 'dashboard') {
+      setActiveTab('admin-dashboard');
+    }
+  }, [currentUser?.role]);
 
   // Enrolled students in active classroom
   const [classroomStudents, setClassroomStudents] = useState<UserProfile[]>([]);
@@ -170,6 +179,9 @@ const AppContent: React.FC = () => {
       // If teacher: classrooms created by teacher
       // If student: classrooms where studentIds includes student
       const userClassrooms = cls.filter((c) => {
+        if (currentUser.role === 'admin') {
+          return true; // Admin has visibility into all school classrooms
+        }
         if (currentUser.role === 'teacher') {
           return c.teacherId === currentUser.id;
         } else {
@@ -235,6 +247,7 @@ const AppContent: React.FC = () => {
     return <LoginPage />;
   }
 
+  const isAdmin = currentUser?.role === 'admin';
   const isTeacher = currentUser?.role === 'teacher';
 
   const pendingSubmissionsCount = submissions.filter((s) => s.status === 'submitted').length;
@@ -248,6 +261,23 @@ const AppContent: React.FC = () => {
   }
 
   // Navigation Items per Role
+  const adminTabs: TabItem[] = [
+    { id: 'admin-dashboard', label: 'แดชบอร์ดแอดมิน & รายงาน', icon: Shield },
+    { id: 'all-classrooms', label: `ตรวจห้องเรียน (${classrooms.length})`, icon: School },
+    ...(activeClassroom ? [
+      { id: 'attendance', label: 'เช็คชื่อ', icon: CalendarCheck },
+      {
+        id: 'assignments',
+        label: 'การบ้าน & ตรวจงาน',
+        icon: FileCheck2,
+        badge: pendingSubmissionsCount > 0 ? pendingSubmissionsCount : undefined,
+      },
+      { id: 'lessons', label: 'บทเรียน & สื่อ', icon: FolderOpen },
+      { id: 'behaviors', label: 'พฤติกรรม', icon: HeartHandshake },
+    ] : []),
+    { id: 'chat', label: 'แชท & ประกาศโรงเรียน', icon: MessageSquare },
+  ];
+
   const teacherTabs: TabItem[] = [
     { id: 'dashboard', label: 'ภาพรวมห้องเรียน', icon: LayoutDashboard },
     { id: 'students', label: `นักเรียนในห้อง (${classroomStudents.length})`, icon: Users },
@@ -271,7 +301,7 @@ const AppContent: React.FC = () => {
     { id: 'chat', label: 'ถามครู & แชทห้องเรียน', icon: MessageSquare },
   ];
 
-  const tabs = isTeacher ? teacherTabs : studentTabs;
+  const tabs = isAdmin ? adminTabs : isTeacher ? teacherTabs : studentTabs;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col font-sans text-slate-900">
@@ -279,7 +309,12 @@ const AppContent: React.FC = () => {
       <Navbar
         classrooms={classrooms}
         activeClassroom={activeClassroom}
-        onSelectClassroom={(c) => setActiveClassroom(c)}
+        onSelectClassroom={(c) => {
+          setActiveClassroom(c);
+          if (isAdmin) {
+            setActiveTab('all-classrooms');
+          }
+        }}
         onOpenChat={() => setActiveTab('chat')}
         pendingSubmissionsCount={pendingSubmissionsCount}
         onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
@@ -311,7 +346,9 @@ const AppContent: React.FC = () => {
                     }}
                     className={`px-3 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
                       isActive
-                        ? isTeacher
+                        ? isAdmin
+                          ? 'bg-purple-600 text-white shadow-sm'
+                          : isTeacher
                           ? 'bg-blue-600 text-white shadow-sm'
                           : 'bg-teal-600 text-white shadow-sm'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
@@ -332,8 +369,8 @@ const AppContent: React.FC = () => {
               })}
             </div>
 
-            {/* Quick classroom triggers for teacher */}
-            {isTeacher && (
+            {/* Quick classroom triggers for teacher or admin */}
+            {(isTeacher || isAdmin) && (
               <div className="flex items-center gap-2 shrink-0 ml-3">
                 <button
                   type="button"
@@ -361,6 +398,99 @@ const AppContent: React.FC = () => {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {/* Admin Views */}
+        {isAdmin && (
+          <>
+            {activeTab === 'admin-dashboard' && (
+              <AdminDashboard
+                currentUser={currentUser}
+                classrooms={classrooms}
+                assignments={assignments}
+                submissions={submissions}
+                onSelectClassroom={(c) => {
+                  setActiveClassroom(c);
+                  setActiveTab('all-classrooms');
+                }}
+                onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
+              />
+            )}
+
+            {activeTab === 'all-classrooms' && (
+              <div className="space-y-6">
+                {activeClassroom ? (
+                  <TeacherDashboard
+                    classroom={activeClassroom}
+                    assignments={assignments}
+                    submissions={submissions}
+                    attendanceRecords={attendanceRecords}
+                    behaviors={behaviors}
+                    quizzes={quizzes}
+                    studentCount={classroomStudents.length}
+                    onNavigateTab={(tab) => {
+                      if (tab === 'students') {
+                        setIsClassManagerOpen(true);
+                      } else {
+                        setActiveTab(tab);
+                      }
+                    }}
+                    onOpenGradingModal={handleOpenGradingModal}
+                    onOpenSkillModal={handleOpenSkillModal}
+                    onOpenClassroomSettings={() => setIsClassManagerOpen(true)}
+                    onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
+                  />
+                ) : (
+                  <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 shadow-2xs">
+                    <School className="w-12 h-12 text-slate-300 mx-auto mb-3" />
+                    <p className="text-sm font-bold text-slate-700">ยังไม่ได้เลือกห้องเรียนที่ต้องการตรวจสอบ</p>
+                    <p className="text-xs text-slate-400 mt-1">สามารถเลือกห้องเรียนได้จากแดชบอร์ดแอดมิน หรือจากเมนูด้านบน</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeTab === 'attendance' && (
+              <AttendanceManager
+                classroom={activeClassroom}
+                attendanceRecords={attendanceRecords}
+                students={classroomStudents}
+              />
+            )}
+
+            {activeTab === 'assignments' && (
+              <AssignmentManager
+                classroom={activeClassroom}
+                assignments={assignments}
+                submissions={submissions}
+                students={classroomStudents}
+                onOpenGradingModal={handleOpenGradingModal}
+              />
+            )}
+
+            {activeTab === 'lessons' && (
+              <LessonRepository
+                classroom={activeClassroom}
+                lessons={lessons}
+                isTeacher={true}
+              />
+            )}
+
+            {activeTab === 'behaviors' && (
+              <BehaviorManager
+                classroom={activeClassroom}
+                behaviors={behaviors}
+                students={classroomStudents}
+              />
+            )}
+
+            {activeTab === 'chat' && (
+              <ClassroomChat
+                classroom={activeClassroom}
+                currentUser={currentUser}
+              />
+            )}
+          </>
+        )}
+
         {/* Teacher Views */}
         {isTeacher && (
           <>
@@ -431,7 +561,7 @@ const AppContent: React.FC = () => {
         )}
 
         {/* Student Views */}
-        {!isTeacher && currentUser && (
+        {!isTeacher && !isAdmin && currentUser && (
           <>
             {activeTab === 'dashboard' && (
               <StudentDashboard

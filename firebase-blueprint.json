@@ -8,7 +8,7 @@
         "id": { "type": "string", "maxLength": 128 },
         "email": { "type": "string", "maxLength": 256 },
         "name": { "type": "string", "maxLength": 128 },
-        "role": { "type": "string", "enum": ["teacher", "student"] },
+        "role": { "type": "string", "enum": ["teacher", "student", "admin"] },
         "avatar": { "type": "string", "maxLength": 512 },
         "studentId": { "type": "string", "maxLength": 64 },
         "totalPoints": { "type": "number" },
