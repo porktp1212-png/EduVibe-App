@@ -29,6 +29,7 @@ import {
 } from 'lucide-react';
 import { FileListDisplay } from '../common/FileListDisplay';
 import { UniversalFileViewerModal } from '../common/UniversalFileViewerModal';
+import { BatchAIGradingModal } from './BatchAIGradingModal';
 
 interface AssignmentManagerProps {
   classroom: Classroom | null;
@@ -52,6 +53,7 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
   const [exportType, setExportType] = useState<'current' | 'all'>('current');
   const [copySuccess, setCopySuccess] = useState(false);
   const [viewingFile, setViewingFile] = useState<AttachedFile | null>(null);
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
 
   // Form State for creating assignment
   const [title, setTitle] = useState('');
@@ -652,6 +654,17 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                     >
                       ตรวจแล้ว
                     </button>
+                    {relevantSubmissions.filter((s) => s.status === 'submitted').length > 0 && (
+                      <button
+                        type="button"
+                        id="btn-batch-grade-asg"
+                        onClick={() => setIsBatchModalOpen(true)}
+                        className="px-2.5 py-1 rounded-lg bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs shadow-xs flex items-center gap-1 transition-all"
+                      >
+                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                        <span>⚡ AI ตรวจงาน ({relevantSubmissions.filter((s) => s.status === 'submitted').length})</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1180,6 +1193,13 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
         isOpen={Boolean(viewingFile)}
         onClose={() => setViewingFile(null)}
         file={viewingFile}
+      />
+
+      <BatchAIGradingModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        submissions={relevantSubmissions.filter((s) => s.status === 'submitted')}
+        assignments={assignments}
       />
     </div>
   );

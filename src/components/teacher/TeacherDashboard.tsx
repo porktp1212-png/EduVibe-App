@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { Classroom, Assignment, Submission, AttendanceRecord, BehaviorRecord, UserProfile, Quiz } from '../../types';
+import { BatchAIGradingModal } from './BatchAIGradingModal';
 import {
   FileCheck2,
   Users,
@@ -72,6 +73,7 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
     );
   }
 
+  const [isBatchModalOpen, setIsBatchModalOpen] = useState(false);
   const pendingSubmissions = submissions.filter((s) => s.status === 'submitted');
   const gradedSubmissions = submissions.filter((s) => s.status === 'graded');
 
@@ -246,14 +248,27 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              id="btn-view-all-assignments"
-              onClick={() => onNavigateTab('assignments')}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-            >
-              ดูการบ้านทั้งหมด &rarr;
-            </button>
+            <div className="flex items-center gap-2">
+              {pendingSubmissions.length > 0 && (
+                <button
+                  type="button"
+                  id="btn-batch-ai-grade"
+                  onClick={() => setIsBatchModalOpen(true)}
+                  className="px-3 py-1.5 rounded-xl bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md shadow-purple-500/20 flex items-center gap-1.5 transition-all"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                  <span>⚡ AI ตรวจทุกงาน ({pendingSubmissions.length})</span>
+                </button>
+              )}
+              <button
+                type="button"
+                id="btn-view-all-assignments"
+                onClick={() => onNavigateTab('assignments')}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+              >
+                ดูการบ้านทั้งหมด &rarr;
+              </button>
+            </div>
           </div>
 
           {pendingSubmissions.length === 0 ? (
@@ -452,6 +467,13 @@ export const TeacherDashboard: React.FC<TeacherDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      <BatchAIGradingModal
+        isOpen={isBatchModalOpen}
+        onClose={() => setIsBatchModalOpen(false)}
+        submissions={pendingSubmissions}
+        assignments={assignments}
+      />
     </div>
   );
 };

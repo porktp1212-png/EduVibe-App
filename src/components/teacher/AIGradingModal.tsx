@@ -147,7 +147,7 @@ export const AIGradingModal: React.FC<AIGradingModalProps> = ({
     setScore(totalRubricScore);
   };
 
-  const handleRunAiEvaluation = async () => {
+  const handleRunAiEvaluation = async (autoSave = false) => {
     setIsAiLoading(true);
     setAiError(null);
     try {
@@ -176,18 +176,41 @@ export const AIGradingModal: React.FC<AIGradingModalProps> = ({
         setRubricScores(data.rubricScores as any);
       }
 
+      const finalScore = typeof data.suggestedScore === 'number' ? data.suggestedScore : score;
       if (typeof data.suggestedScore === 'number') {
         setScore(data.suggestedScore);
       }
 
+      // Auto compute proportional points reward
+      const ratio = finalScore / (assignment.maxScore || 10);
+      const suggestedPts = Math.max(5, Math.round((assignment.pointsReward || 50) * Math.min(1, Math.max(0.4, ratio))));
+      setPointsToAward(suggestedPts);
+
       if (data.feedback) {
         setTeacherFeedback((prev) => (prev ? `${prev}\n\n[ข้อเสนอแนะ AI]: ${data.feedback}` : data.feedback));
+      }
+
+      if (autoSave) {
+        setIsSaving(true);
+        const aiFeedbackSummary = `${data.feedback || ''}\n\n• จุดแข็ง: ${data.strengths?.join(', ') || '-'}\n• ข้อควรพัฒนา: ${data.weaknesses?.join(', ') || '-'}\n• คำแนะนำต่อยอด: ${data.recommendedImprovement || '-'}`.trim();
+        await gradeSubmission(submission.id, {
+          score: finalScore,
+          teacherFeedback: data.feedback || teacherFeedback,
+          aiFeedback: aiFeedbackSummary,
+          rubricScores: (data.rubricScores as any) || undefined,
+          pointsAwarded: suggestedPts,
+          status: 'graded',
+          studentId: submission.studentId,
+        });
+        onClose();
+        return;
       }
     } catch (err: any) {
       console.warn('AI evaluation notice:', err);
       setAiError('ระบบ AI ตรวจการบ้านมีข้อขัดข้องชั่วคราว คุณครูสามารถให้คะแนนและบันทึกข้อเสนอแนะได้ตามปกติ');
     } finally {
       setIsAiLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -195,8 +218,8 @@ export const AIGradingModal: React.FC<AIGradingModalProps> = ({
     setIsSaving(true);
     try {
       const aiFeedbackSummary = aiResult
-        ? `[จุดแข็ง]: ${aiResult.strengths?.join(', ')} | [ข้อควรพัฒนา]: ${aiResult.weaknesses?.join(', ')} | [แนวทางปรับปรุง]: ${aiResult.recommendedImprovement}`
-        : '';
+        ? `${aiResult.feedback || ''}\n\n• จุดแข็ง: ${aiResult.strengths?.join(', ') || '-'}\n• ข้อควรพัฒนา: ${aiResult.weaknesses?.join(', ') || '-'}\n• คำแนะนำต่อยอด: ${aiResult.recommendedImprovement || '-'}`.trim()
+        : (submission.aiFeedback || '');
 
       await gradeSubmission(submission.id, {
         score,
@@ -568,24 +591,52 @@ export const AIGradingModal: React.FC<AIGradingModalProps> = ({
         </div>
 
         {/* Footer actions */}
-        <div className="p-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end gap-3">
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-xl"
-          >
-            ยกเลิก
-          </button>
-          <button
-            type="button"
-            id="btn-confirm-grade"
-            onClick={handleSaveGrade}
-            disabled={isSaving}
-            className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5"
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>{isSaving ? 'กำลังบันทึกคะแนน...' : 'บันทึกคะแนนและมอบแต้ม'}</span>
-          </button>
+        <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="text-[11px] text-slate-500 flex items-center gap-1.5">
+            <Sparkles className="w-3.5 h-3.5 text-indigo-600" />
+            <span>AI ประเมินตามเนื้องานจริงและเกณฑ์รูบิกอย่างโปร่งใส</span>
+          </div>
+
+          <div className="flex items-center gap-2.5 w-full sm:w-auto justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 rounded-xl"
+            >
+              ยกเลิก
+            </button>
+            {!aiResult && (
+              <button
+                type="button"
+                id="btn-auto-grade-save"
+                onClick={() => handleRunAiEvaluation(true)}
+                disabled={isAiLoading || isSaving}
+                className="px-4 py-2.5 bg-linear-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+              >
+                {isAiLoading || isSaving ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>กำลังตรวจและบันทึก...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                    <span>⚡ ตรวจด้วย AI & บันทึกทันที</span>
+                  </>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              id="btn-confirm-grade"
+              onClick={handleSaveGrade}
+              disabled={isSaving || isAiLoading}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-[0.99] text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              <span>{isSaving ? 'กำลังบันทึกคะแนน...' : 'บันทึกคะแนนและมอบแต้ม'}</span>
+            </button>
+          </div>
         </div>
       </div>
 

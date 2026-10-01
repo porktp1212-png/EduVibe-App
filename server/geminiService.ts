@@ -30,8 +30,8 @@ function getGenAIClient() {
 // Supported models to rotate if primary experiences temporary high demand (503) or rate limits (429)
 const CANDIDATE_MODELS = [
   "gemini-3.8-flash",
-  "gemini-flash-latest",
   "gemini-3.1-flash-lite",
+  "gemini-flash-latest",
 ];
 
 function extractJson(text: string): any {
@@ -76,16 +76,22 @@ async function callGeminiWithFallback(
     contents: any;
     config?: any;
   },
-  timeoutMs = 15000
+  timeoutMs = 18000
 ): Promise<string | null> {
   for (let i = 0; i < CANDIDATE_MODELS.length; i++) {
     const model = CANDIDATE_MODELS[i];
     try {
+      const config = { ...requestPayload.config };
+      // Use LOW thinking level for gemini-3.8-flash to minimize latency while keeping reasoning sharp
+      if (model === "gemini-3.8-flash" && !config.thinkingConfig) {
+        config.thinkingConfig = { thinkingLevel: ThinkingLevel.LOW };
+      }
+
       const response = await withTimeout(
         ai.models.generateContent({
           model,
           contents: requestPayload.contents,
-          config: requestPayload.config,
+          config,
         }),
         timeoutMs
       );
@@ -97,9 +103,8 @@ async function callGeminiWithFallback(
       const errMsg = String(err?.message || err || "");
       console.warn(`[Gemini Fallback] Model ${model} attempt failed: ${errMsg.slice(0, 150)}`);
 
-      // Try next candidate model smoothly on any error (quota, 503, 429, resource_exhausted, timeout, etc.)
+      // Try next candidate model smoothly without long pauses
       if (i < CANDIDATE_MODELS.length - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 350));
         continue;
       }
     }
@@ -259,43 +264,66 @@ ${params.studentSubmission || '(นักเรียนไม่ได้พิ
 
     const parts: any[] = [];
 
-    // Process attached files (images / PDFs / text)
+    // Process attached files (images / PDFs / audio / text)
     const uploadsDir = path.join(process.cwd(), "uploads");
     for (const f of allFiles) {
       try {
         let mime = f.type || "";
+        const ext = path.extname(f.name || "").toLowerCase();
+        if (!mime || mime === "application/octet-stream") {
+          if ([".jpg", ".jpeg"].includes(ext)) mime = "image/jpeg";
+          else if (ext === ".png") mime = "image/png";
+          else if (ext === ".webp") mime = "image/webp";
+          else if (ext === ".gif") mime = "image/gif";
+          else if (ext === ".pdf") mime = "application/pdf";
+          else if (ext === ".mp3") mime = "audio/mpeg";
+          else if (ext === ".wav") mime = "audio/wav";
+          else if (ext === ".m4a") mime = "audio/mp4";
+          else if (ext === ".webm") mime = "audio/webm";
+          else if ([".txt", ".md", ".csv", ".json"].includes(ext)) mime = "text/plain";
+        }
+
         let base64Data = "";
 
-        if (f.data && f.data.startsWith("data:")) {
-          const match = f.data.match(/^data:([^;]+);base64,(.+)$/);
-          if (match) {
-            mime = match[1];
-            base64Data = match[2];
+        if (f.data) {
+          if (f.data.startsWith("data:")) {
+            const match = f.data.match(/^data:([^;]+);base64,(.+)$/);
+            if (match) {
+              mime = match[1] || mime;
+              base64Data = match[2];
+            }
+          } else if (f.data.length > 50 && !f.data.startsWith("http")) {
+            base64Data = f.data;
           }
-        } else if (f.url && f.url.startsWith("/api/files/")) {
+        }
+
+        if (!base64Data && f.url && f.url.startsWith("/api/files/")) {
           const fileId = f.url.replace(/^\/api\/files\/?/, "").split("/")[0].split("?")[0];
           if (fs.existsSync(uploadsDir)) {
             const filesOnDisk = fs.readdirSync(uploadsDir);
             const found = filesOnDisk.find((name) => name.startsWith(fileId));
             if (found) {
               const fullPath = path.join(uploadsDir, found);
-              const ext = path.extname(found).toLowerCase();
+              const diskExt = path.extname(found).toLowerCase();
               const buffer = fs.readFileSync(fullPath);
-              if ([".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext)) {
-                mime = ext === ".png" ? "image/png" : ext === ".webp" ? "image/webp" : "image/jpeg";
+              if ([".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(diskExt)) {
+                mime = diskExt === ".png" ? "image/png" : diskExt === ".webp" ? "image/webp" : "image/jpeg";
                 base64Data = buffer.toString("base64");
-              } else if (ext === ".pdf") {
+              } else if (diskExt === ".pdf") {
                 mime = "application/pdf";
                 base64Data = buffer.toString("base64");
-              } else if ([".txt", ".md", ".csv", ".json", ".html", ".js", ".ts", ".py"].includes(ext)) {
-                const textContent = buffer.toString("utf-8").slice(0, 10000);
+              } else if ([".mp3", ".wav", ".m4a", ".webm"].includes(diskExt)) {
+                mime = diskExt === ".wav" ? "audio/wav" : diskExt === ".webm" ? "audio/webm" : diskExt === ".m4a" ? "audio/mp4" : "audio/mpeg";
+                base64Data = buffer.toString("base64");
+              } else if ([".txt", ".md", ".csv", ".json", ".html", ".js", ".ts", ".py"].includes(diskExt)) {
+                const textContent = buffer.toString("utf-8").slice(0, 15000);
                 parts.push({ text: `[เนื้อหาไฟล์แนบ ${f.name}]:\n${textContent}` });
               }
             }
           }
         }
 
-        if (base64Data && (mime.startsWith("image/") || mime === "application/pdf")) {
+        if (base64Data && (mime.startsWith("image/") || mime === "application/pdf" || mime.startsWith("audio/"))) {
           parts.push({
             inlineData: {
               mimeType: mime,
