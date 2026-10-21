@@ -10,6 +10,7 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   updateProfile as updateFirebaseProfile,
+  sendPasswordResetEmail,
 } from 'firebase/auth';
 import { getFirestore, initializeFirestore, doc, getDocFromServer } from 'firebase/firestore';
 import rawFirebaseConfig from '../../firebase-applet-config.json';
@@ -111,6 +112,10 @@ export async function registerWithEmail(email: string, pass: string, displayName
     }
   }
   return result.user;
+}
+
+export async function sendPasswordReset(email: string) {
+  return await sendPasswordResetEmail(auth, email.trim());
 }
 
 export async function loginWithGoogle() {

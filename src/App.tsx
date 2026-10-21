@@ -29,6 +29,7 @@ import {
   subscribeToBehaviors,
   subscribeToQuizzes,
   subscribeToLessons,
+  subscribeClassroomStudents,
   getClassroomStudents,
   clearAllSystemData,
 } from './services/firestoreService';
@@ -124,24 +125,23 @@ const AppContent: React.FC = () => {
     }
   };
 
-  // Sync enrolled students whenever active classroom changes
+  // Real-time synchronization of enrolled students in active classroom
   useEffect(() => {
     if (!activeClassroom) {
       setClassroomStudents([]);
       return;
     }
-    let isMounted = true;
-    const loadStudents = async () => {
-      const studentIds = (activeClassroom.studentIds || []).filter((id) => id !== activeClassroom.teacherId);
-      const list = await getClassroomStudents(studentIds);
-      if (isMounted) {
-        setClassroomStudents(list);
-      }
-    };
-    loadStudents();
-    return () => {
-      isMounted = false;
-    };
+    const studentIds = (activeClassroom.studentIds || []).filter((id) => id !== activeClassroom.teacherId);
+    if (studentIds.length === 0) {
+      setClassroomStudents([]);
+      return;
+    }
+
+    const unsub = subscribeClassroomStudents(studentIds, (students) => {
+      setClassroomStudents(students);
+    });
+
+    return () => unsub();
   }, [activeClassroom?.id, activeClassroom?.studentIds?.join(',')]);
 
   const handleClassroomDeleted = (deletedId: string) => {
@@ -167,7 +167,7 @@ const AppContent: React.FC = () => {
   // Assignment selected by student from Dashboard to jump straight to submit
   const [studentPendingAsg, setStudentPendingAsg] = useState<Assignment | null>(null);
 
-  // Subscribe to classrooms for the current user only
+  // Subscribe to classrooms for the current user in real-time
   useEffect(() => {
     if (!currentUser) {
       setClassrooms([]);
@@ -176,29 +176,42 @@ const AppContent: React.FC = () => {
     }
 
     const unsub = subscribeToClassrooms((cls) => {
-      // Filter classrooms relevant to this user:
-      // If teacher: classrooms created by teacher
-      // If student: classrooms where studentIds includes student
+      // Filter classrooms relevant to this user across all devices:
+      // If admin: all classrooms
+      // If teacher: teacherId matches id or email
+      // If student: studentIds matches id, studentId, or email
       const userClassrooms = cls.filter((c) => {
         if (currentUser.role === 'admin') {
           return true; // Admin has visibility into all school classrooms
         }
         if (currentUser.role === 'teacher') {
-          return c.teacherId === currentUser.id;
+          return (
+            c.teacherId === currentUser.id ||
+            (currentUser.email && c.teacherId?.toLowerCase() === currentUser.email.toLowerCase())
+          );
         } else {
-          return Array.isArray(c.studentIds) && c.studentIds.includes(currentUser.id);
+          return (
+            Array.isArray(c.studentIds) &&
+            (c.studentIds.includes(currentUser.id) ||
+              (currentUser.studentId && c.studentIds.includes(currentUser.studentId)) ||
+              (currentUser.email && c.studentIds.some((s) => s.toLowerCase() === currentUser.email.toLowerCase())))
+          );
         }
       });
 
       setClassrooms(userClassrooms);
       if (userClassrooms.length > 0) {
-        setActiveClassroom((prev) => (prev ? userClassrooms.find((c) => c.id === prev.id) || userClassrooms[0] : userClassrooms[0]));
+        setActiveClassroom((prev) => {
+          if (!prev) return userClassrooms[0];
+          const matched = userClassrooms.find((c) => c.id === prev.id);
+          return matched || userClassrooms[0];
+        });
       } else {
         setActiveClassroom(null);
       }
     });
     return () => unsub();
-  }, [currentUser?.id, currentUser?.role]);
+  }, [currentUser?.id, currentUser?.role, currentUser?.studentId, currentUser?.email]);
 
   // Subscribe to classroom entities whenever activeClassroom changes
   useEffect(() => {

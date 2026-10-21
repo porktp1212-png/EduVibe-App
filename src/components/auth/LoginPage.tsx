@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { ForgotPasswordModal } from './ForgotPasswordModal';
 import {
   GraduationCap,
   Sparkles,
@@ -50,6 +51,7 @@ export const LoginPage: React.FC = () => {
   // Login Form states
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
+  const [isForgotPasswordOpen, setIsForgotPasswordOpen] = useState(false);
 
   // Register Form states
   const [regRole, setRegRole] = useState<'teacher' | 'student'>('teacher');
@@ -398,6 +400,14 @@ export const LoginPage: React.FC = () => {
                         <label className="block text-xs font-semibold text-slate-300">
                           รหัสผ่าน <span className="text-rose-400">*</span>
                         </label>
+                        <button
+                          type="button"
+                          id="btn-login-forgot-password"
+                          onClick={() => setIsForgotPasswordOpen(true)}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors font-medium cursor-pointer"
+                        >
+                          ลืมรหัสผ่าน?
+                        </button>
                       </div>
                       <div className="relative">
                         <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" />
@@ -729,6 +739,13 @@ export const LoginPage: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {/* Forgot Password Modal */}
+      <ForgotPasswordModal
+        isOpen={isForgotPasswordOpen}
+        onClose={() => setIsForgotPasswordOpen(false)}
+        defaultIdentifier={loginEmail}
+      />
 
       {/* Footer */}
       <footer className="border-t border-slate-800/80 bg-slate-950/70 backdrop-blur-md py-4 px-6 text-center text-xs text-slate-400 z-10">

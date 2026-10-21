@@ -226,11 +226,11 @@ export function subscribeToUsers(callback: (users: UserProfile[]) => void) {
         callback(users);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        console.warn('subscribeToUsers Firestore notice:', error);
       }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('subscribeToUsers catch notice:', error);
     return () => {};
   }
 }
@@ -429,6 +429,42 @@ export async function getClassroomStudents(studentIds: string[]): Promise<UserPr
 
   // Strictly return only real, verified registered students (do not generate fake/synthetic dummy profiles)
   return result;
+}
+
+export function subscribeClassroomStudents(
+  studentIds: string[],
+  callback: (students: UserProfile[]) => void
+) {
+  if (!studentIds || studentIds.length === 0) {
+    callback([]);
+    return () => {};
+  }
+  const idSet = new Set(studentIds);
+  try {
+    return onSnapshot(
+      collection(db, 'users'),
+      (snapshot) => {
+        const list: UserProfile[] = [];
+        snapshot.forEach((docSnap) => {
+          const u = { id: docSnap.id, ...(docSnap.data() as any) } as UserProfile;
+          if (
+            idSet.has(u.id) ||
+            (u.studentId && idSet.has(u.studentId)) ||
+            (u.email && idSet.has(u.email.toLowerCase()))
+          ) {
+            list.push(u);
+          }
+        });
+        callback(list);
+      },
+      (error) => {
+        console.warn('subscribeClassroomStudents notice:', error);
+      }
+    );
+  } catch (error) {
+    console.warn('subscribeClassroomStudents catch notice:', error);
+    return () => {};
+  }
 }
 
 export async function getAllRegisteredStudents(): Promise<UserProfile[]> {
@@ -806,19 +842,32 @@ export async function gradeSubmission(
       status: 'graded',
     });
 
-    // Award points to student user profile
-    const userDoc = await getDoc(doc(db, 'users', updates.studentId));
-    if (userDoc.exists()) {
-      const currentPts = userDoc.data().totalPoints || 0;
-      const newPts = currentPts + updates.pointsAwarded;
-      const newLvl = Math.floor(newPts / 200) + 1;
-      await updateDoc(doc(db, 'users', updates.studentId), {
-        totalPoints: newPts,
-        level: newLvl,
-      });
+    // Award points to student user profile in Firestore
+    try {
+      let userDocRef = doc(db, 'users', updates.studentId);
+      let userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        const qStd = query(collection(db, 'users'), where('studentId', '==', updates.studentId));
+        const snapStd = await getDocs(qStd);
+        if (!snapStd.empty) {
+          userDocRef = snapStd.docs[0].ref;
+          userDocSnap = snapStd.docs[0];
+        }
+      }
+      if (userDocSnap.exists()) {
+        const currentPts = userDocSnap.data().totalPoints || 0;
+        const newPts = currentPts + updates.pointsAwarded;
+        const newLvl = Math.floor(newPts / 200) + 1;
+        await updateDoc(userDocRef, {
+          totalPoints: newPts,
+          level: newLvl,
+        });
+      }
+    } catch (ptsErr) {
+      console.warn('Notice updating student points after grading:', ptsErr);
     }
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
+    console.warn('gradeSubmission error:', error);
   }
 }
 
@@ -837,11 +886,11 @@ export function subscribeAttendance(classroomId: string, callback: (records: Att
         callback(list.sort((a, b) => (b.date || '').localeCompare(a.date || '')));
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        console.warn('subscribeAttendance Firestore notice:', error);
       }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('subscribeAttendance catch notice:', error);
     return () => {};
   }
 }
@@ -889,12 +938,21 @@ export async function addBehaviorRecord(record: BehaviorRecord): Promise<void> {
 
     // Adjust student points in user profile
     try {
-      const userDoc = await getDoc(doc(db, 'users', record.studentId));
-      if (userDoc.exists()) {
-        const currentPts = userDoc.data().totalPoints || 0;
+      let userDocRef = doc(db, 'users', record.studentId);
+      let userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        const qStd = query(collection(db, 'users'), where('studentId', '==', record.studentId));
+        const snapStd = await getDocs(qStd);
+        if (!snapStd.empty) {
+          userDocRef = snapStd.docs[0].ref;
+          userDocSnap = snapStd.docs[0];
+        }
+      }
+      if (userDocSnap.exists()) {
+        const currentPts = userDocSnap.data().totalPoints || 0;
         const newPts = Math.max(0, currentPts + record.scoreDelta);
         const newLvl = Math.floor(newPts / 200) + 1;
-        await updateDoc(doc(db, 'users', record.studentId), {
+        await updateDoc(userDocRef, {
           totalPoints: newPts,
           level: newLvl,
         });
@@ -933,11 +991,11 @@ export function subscribeQuizzes(classroomId: string, callback: (quizzes: Quiz[]
         callback(list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')));
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        console.warn('subscribeQuizzes Firestore notice:', error);
       }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('subscribeQuizzes catch notice:', error);
     return () => {};
   }
 }
@@ -945,9 +1003,9 @@ export function subscribeQuizzes(classroomId: string, callback: (quizzes: Quiz[]
 export async function saveQuiz(quiz: Quiz): Promise<void> {
   const path = `quizzes/${quiz.id}`;
   try {
-    await setDoc(doc(db, 'quizzes', quiz.id), quiz);
+    await setDoc(doc(db, 'quizzes', quiz.id), sanitizeForFirestore(quiz));
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('saveQuiz error:', error);
   }
 }
 
@@ -956,7 +1014,7 @@ export async function deleteQuiz(quizId: string): Promise<void> {
   try {
     await deleteDoc(doc(db, 'quizzes', quizId));
   } catch (error) {
-    handleFirestoreError(error, OperationType.DELETE, path);
+    console.warn('deleteQuiz error:', error);
   }
 }
 
@@ -974,11 +1032,11 @@ export function subscribeQuizResults(studentId: string, callback: (results: Quiz
         callback(list);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        console.warn('subscribeQuizResults Firestore notice:', error);
       }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('subscribeQuizResults catch notice:', error);
     return () => {};
   }
 }
@@ -986,22 +1044,31 @@ export function subscribeQuizResults(studentId: string, callback: (results: Quiz
 export async function submitQuizResult(result: QuizResult): Promise<void> {
   const path = `quiz_results/${result.id}`;
   try {
-    await setDoc(doc(db, 'quiz_results', result.id), result);
+    await setDoc(doc(db, 'quiz_results', result.id), sanitizeForFirestore(result));
 
     if (result.pointsEarned > 0) {
-      const userDoc = await getDoc(doc(db, 'users', result.studentId));
-      if (userDoc.exists()) {
-        const currentPts = userDoc.data().totalPoints || 0;
+      let userDocRef = doc(db, 'users', result.studentId);
+      let userDocSnap = await getDoc(userDocRef);
+      if (!userDocSnap.exists()) {
+        const qStd = query(collection(db, 'users'), where('studentId', '==', result.studentId));
+        const snapStd = await getDocs(qStd);
+        if (!snapStd.empty) {
+          userDocRef = snapStd.docs[0].ref;
+          userDocSnap = snapStd.docs[0];
+        }
+      }
+      if (userDocSnap.exists()) {
+        const currentPts = userDocSnap.data().totalPoints || 0;
         const newPts = currentPts + result.pointsEarned;
         const newLvl = Math.floor(newPts / 200) + 1;
-        await updateDoc(doc(db, 'users', result.studentId), {
+        await updateDoc(userDocRef, {
           totalPoints: newPts,
           level: newLvl,
         });
       }
     }
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('submitQuizResult error:', error);
   }
 }
 
@@ -1020,11 +1087,11 @@ export function subscribeMessages(classroomId: string, callback: (msgs: ChatMess
         callback(list.sort((a, b) => (a.timestamp || '').localeCompare(b.timestamp || '')));
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        console.warn('subscribeMessages Firestore notice:', error);
       }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('subscribeMessages catch notice:', error);
     return () => {};
   }
 }
@@ -1032,9 +1099,9 @@ export function subscribeMessages(classroomId: string, callback: (msgs: ChatMess
 export async function sendChatMessage(msg: ChatMessage): Promise<void> {
   const path = `messages/${msg.id}`;
   try {
-    await setDoc(doc(db, 'messages', msg.id), msg);
+    await setDoc(doc(db, 'messages', msg.id), sanitizeForFirestore(msg));
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('sendChatMessage error:', error);
   }
 }
 
@@ -1053,11 +1120,11 @@ export function subscribeCertificates(studentId: string, callback: (certs: Certi
         callback(list.sort((a, b) => (b.issuedDate || '').localeCompare(a.issuedDate || '')));
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        console.warn('subscribeCertificates Firestore notice:', error);
       }
     );
   } catch (error) {
-    handleFirestoreError(error, OperationType.LIST, path);
+    console.warn('subscribeCertificates catch notice:', error);
     return () => {};
   }
 }
@@ -1065,9 +1132,9 @@ export function subscribeCertificates(studentId: string, callback: (certs: Certi
 export async function issueCertificate(cert: Certificate): Promise<void> {
   const path = `certificates/${cert.id}`;
   try {
-    await setDoc(doc(db, 'certificates', cert.id), cert);
+    await setDoc(doc(db, 'certificates', cert.id), sanitizeForFirestore(cert));
   } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
+    console.warn('issueCertificate error:', error);
   }
 }
 

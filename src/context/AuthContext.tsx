@@ -1,10 +1,13 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { onAuthStateChanged, getRedirectResult, User as FirebaseUser, updateProfile as updateFirebaseProfile } from 'firebase/auth';
+import { doc, onSnapshot } from 'firebase/firestore';
 import {
   auth,
+  db,
   loginWithGoogle,
   loginWithEmail,
   registerWithEmail,
+  sendPasswordReset,
   logoutUser,
 } from '../lib/firebase';
 import {
@@ -40,6 +43,10 @@ interface AuthContextType {
   logout: () => Promise<void>;
   updateRole: (role: UserRole) => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
+  requestPasswordReset: (
+    emailOrId: string,
+    newPassword?: string
+  ) => Promise<{ success: boolean; method: 'email' | 'direct'; message: string }>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -178,6 +185,45 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
+  // Real-time synchronization of active user profile across all tabs and devices
+  useEffect(() => {
+    if (!currentUser?.id) return;
+
+    const userDocRef = doc(db, 'users', currentUser.id);
+    const unsub = onSnapshot(
+      userDocRef,
+      (docSnap) => {
+        if (docSnap.exists()) {
+          const freshData = { id: docSnap.id, ...(docSnap.data() as any) } as UserProfile;
+          setCurrentUser((prev) => {
+            if (!prev) return freshData;
+            if (
+              prev.totalPoints !== freshData.totalPoints ||
+              prev.level !== freshData.level ||
+              prev.role !== freshData.role ||
+              prev.name !== freshData.name ||
+              prev.avatar !== freshData.avatar ||
+              prev.streakDays !== freshData.streakDays ||
+              prev.grade !== freshData.grade ||
+              prev.subject !== freshData.subject ||
+              prev.department !== freshData.department
+            ) {
+              const merged = { ...prev, ...freshData };
+              localStorage.setItem('eduvibe_current_user', JSON.stringify(merged));
+              return merged;
+            }
+            return prev;
+          });
+        }
+      },
+      (err) => {
+        console.warn('Real-time user profile sync notice:', err);
+      }
+    );
+
+    return () => unsub();
+  }, [currentUser?.id]);
+
   const loginWithCredentials = async (emailOrId: string, pass: string) => {
     setLoading(true);
     try {
@@ -202,6 +248,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ) {
         setCurrentUser(DEMO_TEACHER);
         localStorage.setItem('eduvibe_current_user', JSON.stringify(DEMO_TEACHER));
+        await saveUserProfile(DEMO_TEACHER);
         return;
       }
       if (
@@ -213,6 +260,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       ) {
         setCurrentUser(DEMO_STUDENT);
         localStorage.setItem('eduvibe_current_user', JSON.stringify(DEMO_STUDENT));
+        await saveUserProfile(DEMO_STUDENT);
         return;
       }
 
@@ -529,6 +577,77 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await saveUserProfile(updated);
   };
 
+  const requestPasswordReset = async (
+    emailOrId: string,
+    newPassword?: string
+  ): Promise<{ success: boolean; method: 'email' | 'direct'; message: string }> => {
+    const cleanInput = (emailOrId || '').trim();
+    if (!cleanInput) {
+      throw new Error('กรุณาระบุอีเมล หรือเลขประจำตัวนักเรียน');
+    }
+    const cleanLower = cleanInput.toLowerCase();
+
+    // 1. Demo accounts shortcut
+    if (cleanLower === 'admin@thainiyom.ac.th' || cleanLower === 'admin') {
+      return {
+        success: true,
+        method: 'direct',
+        message: 'บัญชีผู้ดูแลระบบ (Admin) สามารถเข้าสู่ระบบได้ทันทีโดยไม่ต้องเปลี่ยนรหัสผ่าน',
+      };
+    }
+
+    let profile: UserProfile | null = await getUserByEmailOrStudentId(cleanInput);
+    if (!profile && !cleanLower.includes('@')) {
+      profile = await getUserByEmailOrStudentId(`${cleanLower}@thainiyom.ac.th`);
+    }
+
+    // 2. Direct password update if new password provided
+    if (newPassword && newPassword.trim().length >= 6) {
+      if (!profile) {
+        throw new Error('ไม่พบบัญชีผู้ใช้งานนี้ในระบบโรงเรียน กรุณาตรวจสอบอีเมลหรือเลขประจำตัวนักเรียน');
+      }
+      profile.password = newPassword.trim();
+      await saveUserProfile(profile);
+      return {
+        success: true,
+        method: 'direct',
+        message: `รีเซ็ตรหัสผ่านสำหรับ ${profile.name} เรียบร้อยแล้ว! สามารถใช้รหัสผ่านใหม่เข้าสู่ระบบได้ทันที`,
+      };
+    }
+
+    // 3. Email reset link via Firebase Auth
+    const targetEmail = profile?.email || (cleanLower.includes('@') ? cleanLower : null);
+    if (targetEmail) {
+      try {
+        await sendPasswordReset(targetEmail);
+        return {
+          success: true,
+          method: 'email',
+          message: `ระบบได้ส่งลิงก์สำหรับรีเซ็ตรหัสผ่านไปยังอีเมล ${targetEmail} แล้ว กรุณาตรวจสอบในกล่องจดหมาย`,
+        };
+      } catch (fbErr: any) {
+        console.warn('Firebase reset email notice:', fbErr?.code || fbErr?.message);
+        if (profile) {
+          return {
+            success: true,
+            method: 'direct',
+            message: `พบบัญชี "${profile.name}" (${profile.role === 'teacher' ? 'คุณครู' : profile.role === 'student' ? 'นักเรียน' : 'ผู้ดูแลระบบ'}) ในฐานข้อมูล คุณสามารถกำหนดรหัสผ่านใหม่ได้ทันที`,
+          };
+        }
+      }
+    }
+
+    if (profile) {
+      return {
+        success: true,
+        method: 'direct',
+        message: `พบบัญชี "${profile.name}" ในฐานข้อมูล คุณสามารถกำหนดรหัสผ่านใหม่ได้ทันที`,
+      };
+    }
+
+    throw new Error('ไม่พบบัญชีผู้ใช้นี้ในระบบโรงเรียนไทยนิยมสงเคราะห์ กรุณาตรวจสอบอีเมล/เลขประจำตัวนักเรียน หรือติดต่อครูประจำชั้น');
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -543,6 +662,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         updateRole,
         updateProfile,
+        requestPasswordReset,
       }}
     >
       {children}

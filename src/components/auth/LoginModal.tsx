@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { ForgotPasswordModal } from './ForgotPasswordModal';
 import {
   GraduationCap,
   Sparkles,
@@ -38,6 +39,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
   const [showPass, setShowPass] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isForgotOpen, setIsForgotOpen] = useState(false);
 
   if (!isOpen) return null;
 
@@ -248,7 +250,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">รหัสผ่าน</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-semibold text-slate-300">รหัสผ่าน</label>
+                {tab === 'login' && (
+                  <button
+                    type="button"
+                    onClick={() => setIsForgotOpen(true)}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium cursor-pointer"
+                  >
+                    ลืมรหัสผ่าน?
+                  </button>
+                )}
+              </div>
               <div className="relative">
                 <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
                 <input
@@ -290,6 +303,12 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose }) => {
           </form>
         </div>
       </div>
+
+      <ForgotPasswordModal
+        isOpen={isForgotOpen}
+        onClose={() => setIsForgotOpen(false)}
+        defaultIdentifier={email}
+      />
     </div>
   );
 };

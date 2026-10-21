@@ -3,13 +3,14 @@ import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import fs from "fs";
 import path from "path";
 
-function withTimeout<T>(promise: Promise<T>, ms = 45000): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`AI generation timed out after ${ms}ms`)), ms)
-    ),
-  ]);
+function withTimeout<T>(promise: Promise<T>, ms = 15000): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`AI generation timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
 }
 
 function getGenAIClient() {
@@ -29,8 +30,8 @@ function getGenAIClient() {
 
 // Supported models to rotate if primary experiences temporary high demand (503) or rate limits (429)
 const CANDIDATE_MODELS = [
-  "gemini-3.8-flash",
   "gemini-3.1-flash-lite",
+  "gemini-3.8-flash",
   "gemini-flash-latest",
 ];
 
@@ -377,7 +378,7 @@ ${params.studentSubmission || '(นักเรียนไม่ได้พิ
             },
           },
         },
-        28000
+        15000
       );
 
       if (textResult) {
