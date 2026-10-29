@@ -17,6 +17,10 @@ import {
   Check,
   User,
   Edit,
+  LogOut,
+  AlertTriangle,
+  X,
+  Loader2,
 } from 'lucide-react';
 
 interface StudentDashboardProps {
@@ -28,6 +32,7 @@ interface StudentDashboardProps {
   onNavigateTab: (tab: string) => void;
   onSelectAssignmentToSubmit: (asg: Assignment) => void;
   onClassroomJoined?: (classroom: Classroom) => void;
+  onLeaveClassroom?: (classroomId: string) => Promise<void> | void;
   onOpenEditProfile?: () => void;
 }
 
@@ -40,11 +45,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   onNavigateTab,
   onSelectAssignmentToSubmit,
   onClassroomJoined,
+  onLeaveClassroom,
   onOpenEditProfile,
 }) => {
   const [joinCode, setJoinCode] = useState('');
   const [joinSuccess, setJoinSuccess] = useState<string | null>(null);
   const [joinError, setJoinError] = useState<string | null>(null);
+  const [confirmLeaveClass, setConfirmLeaveClass] = useState<Classroom | null>(null);
+  const [isLeavingClass, setIsLeavingClass] = useState(false);
 
   const handleJoinClassroom = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,6 +73,21 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       }
     } catch {
       setJoinError('เกิดข้อผิดพลาดในการเข้าร่วมห้องเรียน');
+    }
+  };
+
+  const handleConfirmLeave = async () => {
+    if (!confirmLeaveClass) return;
+    setIsLeavingClass(true);
+    try {
+      if (onLeaveClassroom) {
+        await onLeaveClassroom(confirmLeaveClass.id);
+      }
+      setConfirmLeaveClass(null);
+    } catch (err) {
+      console.error('Error leaving classroom:', err);
+    } finally {
+      setIsLeavingClass(false);
     }
   };
 
@@ -149,9 +172,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 <span>ระดับ {student.level || 1} • {student.grade || 'ม.3/1'}</span>
               </div>
               <h1 className="text-xl sm:text-2xl font-bold tracking-tight">สวัสดี, {student.name}</h1>
-              <p className="text-xs sm:text-sm text-teal-100">
-                {classroom ? `ห้องเรียนปัจจุบัน: ${classroom.name} (ครู: ${classroom.teacherName})` : `ลงทะเบียนแล้ว ${coursesToDisplay.length} วิชา`}
-              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs sm:text-sm text-teal-100">
+                  {classroom ? `ห้องเรียนปัจจุบัน: ${classroom.name} (ครู: ${classroom.teacherName})` : `ลงทะเบียนแล้ว ${coursesToDisplay.length} วิชา`}
+                </p>
+                {classroom && onLeaveClassroom && (
+                  <button
+                    type="button"
+                    id="btn-leave-active-classroom"
+                    onClick={() => setConfirmLeaveClass(classroom)}
+                    className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-lg bg-rose-500/25 hover:bg-rose-500/40 text-rose-100 hover:text-white text-[11px] font-semibold border border-rose-300/30 transition-colors cursor-pointer"
+                    title="ออกจากห้องเรียนปัจจุบันนี้"
+                  >
+                    <LogOut className="w-3 h-3 text-rose-200" />
+                    <span>ออกจากห้องเรียนนี้</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
 
@@ -275,9 +312,23 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                     </div>
                   </div>
 
-                  <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 self-start sm:self-auto">
-                    ลงทะเบียนแล้ว
-                  </span>
+                  <div className="flex items-center gap-2 self-start sm:self-auto">
+                    <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
+                      ลงทะเบียนแล้ว
+                    </span>
+                    {onLeaveClassroom && (
+                      <button
+                        type="button"
+                        id={`btn-leave-course-${course.id}`}
+                        onClick={() => setConfirmLeaveClass(course)}
+                        className="px-2.5 py-1 rounded-full text-[10px] font-semibold bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 transition-colors flex items-center gap-1 cursor-pointer"
+                        title="ออกจากห้องเรียนนี้"
+                      >
+                        <LogOut className="w-3 h-3 text-rose-500" />
+                        <span>ออกจากห้อง</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -415,6 +466,65 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Leave Classroom Confirmation Modal */}
+      {confirmLeaveClass && (
+        <div
+          id="leave-classroom-modal-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn"
+        >
+          <div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div className="p-6 space-y-4">
+              <div className="w-12 h-12 rounded-2xl bg-rose-50 border border-rose-200 text-rose-600 flex items-center justify-center mx-auto">
+                <AlertTriangle className="w-6 h-6 text-rose-600" />
+              </div>
+
+              <div className="text-center space-y-1">
+                <h3 className="text-base font-bold text-slate-900">
+                  ยืนยันการออกจากห้องเรียน?
+                </h3>
+                <p className="text-xs font-semibold text-rose-700">
+                  {confirmLeaveClass.name} (รหัส: {confirmLeaveClass.code})
+                </p>
+                <p className="text-xs text-slate-500 leading-relaxed pt-1">
+                  เมื่อออกจากห้องเรียนแล้ว คุณจะไม่เห็นการบ้านหรือบทเรียนของห้องนี้ในหน้าหลัก หากต้องการกลับเข้าเรียนอีกครั้ง จะต้องขอรหัส 6 หลักจากคุณครูผู้สอนเพื่อลงทะเบียนใหม่
+                </p>
+              </div>
+
+              <div className="pt-2 flex items-center gap-2.5">
+                <button
+                  type="button"
+                  id="btn-cancel-leave-classroom"
+                  disabled={isLeavingClass}
+                  onClick={() => setConfirmLeaveClass(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  id="btn-confirm-leave-classroom"
+                  disabled={isLeavingClass}
+                  onClick={handleConfirmLeave}
+                  className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  {isLeavingClass ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>กำลังออกจากห้อง...</span>
+                    </>
+                  ) : (
+                    <>
+                      <LogOut className="w-4 h-4" />
+                      <span>ยืนยันออกจากห้องเรียน</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

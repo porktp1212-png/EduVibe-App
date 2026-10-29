@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import type { Classroom, AttendanceRecord, UserProfile } from '../../types';
 import { saveAttendance } from '../../services/firestoreService';
 import {
@@ -15,6 +15,14 @@ import {
   TrendingUp,
   Users,
   User,
+  Download,
+  Copy,
+  ExternalLink,
+  X,
+  Table,
+  Check,
+  Sparkles,
+  Info,
 } from 'lucide-react';
 
 interface AttendanceManagerProps {
@@ -33,6 +41,8 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
   const [viewMode, setViewMode] = useState<'daily' | 'monthly'>('daily');
   const [isSaving, setIsSaving] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [isGoogleSheetsModalOpen, setIsGoogleSheetsModalOpen] = useState(false);
+  const [copySuccess, setCopySuccess] = useState(false);
 
   // Current date's record
   const currentRecord = attendanceRecords.find((r) => r.date === selectedDate);
@@ -129,6 +139,151 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
   const totalCount = studentList.length;
   const attendanceRate = totalCount > 0 ? Math.round(((presentCount + lateCount) / totalCount) * 100) : 100;
 
+  // Real-time cumulative attendance calculation per student for Google Sheets
+  const summaryData = useMemo(() => {
+    const classroomRecords = attendanceRecords.filter((r) => r.classroomId === classroom.id);
+    const hasHistory = classroomRecords.length > 0;
+
+    return studentList.map((std, idx) => {
+      let present = 0;
+      let late = 0;
+      let leave = 0;
+      let absent = 0;
+
+      if (hasHistory) {
+        classroomRecords.forEach((rec) => {
+          const s = rec.records?.[std.id];
+          if (s) {
+            if (s.status === 'present') present++;
+            else if (s.status === 'late') late++;
+            else if (s.status === 'leave') leave++;
+            else if (s.status === 'absent') absent++;
+          } else {
+            present++; // Default present
+          }
+        });
+      } else {
+        // Fallback to today's active check state
+        const cur = recordsState[std.id]?.status || 'present';
+        if (cur === 'present') present = 1;
+        else if (cur === 'late') late = 1;
+        else if (cur === 'leave') leave = 1;
+        else if (cur === 'absent') absent = 1;
+      }
+
+      const total = present + late + leave + absent;
+      const rate = total > 0 ? Math.round(((present + late) / total) * 100) : 100;
+      const statusText = rate >= 90 ? 'ดีเยี่ยม' : rate >= 80 ? 'ผ่านเกณฑ์' : 'ต้องติดตาม';
+
+      return {
+        id: std.id,
+        index: idx + 1,
+        studentId: std.studentId || `${idx + 1}`.padStart(5, '0'),
+        name: std.name || 'นักเรียน',
+        present,
+        late,
+        leave,
+        absent,
+        total,
+        rate,
+        statusText,
+      };
+    });
+  }, [studentList, attendanceRecords, classroom.id, recordsState]);
+
+  const totalRecordedDays = useMemo(() => {
+    const dates = new Set(
+      attendanceRecords.filter((r) => r.classroomId === classroom.id).map((r) => r.date)
+    );
+    return Math.max(dates.size, 1);
+  }, [attendanceRecords, classroom.id]);
+
+  const avgAttendanceRate = useMemo(() => {
+    if (summaryData.length === 0) return 100;
+    const sum = summaryData.reduce((acc, curr) => acc + curr.rate, 0);
+    return Math.round(sum / summaryData.length);
+  }, [summaryData]);
+
+  // 1-Click Export to CSV (Formatted for Google Sheets & Excel with UTF-8 BOM)
+  const handleExportCSV = () => {
+    const headers = [
+      'ลำดับ',
+      'เลขประจำตัว',
+      'ชื่อ - นามสกุล',
+      'มาเรียน (วัน)',
+      'สาย (วัน)',
+      'ลา (วัน)',
+      'ขาด (วัน)',
+      'รวมวันเรียนทั้งหมด (วัน)',
+      'เปอร์เซ็นต์เข้าเรียน (%)',
+      'สถานะประเมิน',
+    ];
+
+    const rows = summaryData.map((s) => [
+      s.index,
+      `"${s.studentId}"`,
+      `"${s.name}"`,
+      s.present,
+      s.late,
+      s.leave,
+      s.absent,
+      s.total,
+      `"${s.rate}%"`,
+      `"${s.statusText}"`,
+    ]);
+
+    const csvContent = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute(
+      'download',
+      `สรุปผลเช็คชื่อ_${classroom.name.replace(/\s+/g, '_')}_GoogleSheet_${new Date().toISOString().split('T')[0]}.csv`
+    );
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // 1-Click Copy Tab-Separated Values for pasting straight into Google Sheets (Ctrl+V)
+  const handleCopyTSV = async () => {
+    const headers = [
+      'ลำดับ',
+      'เลขประจำตัว',
+      'ชื่อ - นามสกุล',
+      'มาเรียน (วัน)',
+      'สาย (วัน)',
+      'ลา (วัน)',
+      'ขาด (วัน)',
+      'รวมวันเรียน',
+      'เปอร์เซ็นต์เข้าเรียน',
+      'สถานะประเมิน',
+    ];
+
+    const rows = summaryData.map((s) => [
+      s.index,
+      s.studentId,
+      s.name,
+      s.present,
+      s.late,
+      s.leave,
+      s.absent,
+      s.total,
+      `${s.rate}%`,
+      s.statusText,
+    ]);
+
+    const tsvContent = [headers.join('\t'), ...rows.map((r) => r.join('\t'))].join('\n');
+    try {
+      await navigator.clipboard.writeText(tsvContent);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2500);
+    } catch {
+      // fallback
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Controls Bar */}
@@ -141,7 +296,7 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
             <h1 className="text-xl font-bold text-slate-900">ระบบเช็คชื่อนักเรียนแบบเรียลไทม์</h1>
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            บันทึกการมาเรียน ขาด ลา มาสาย พร้อมสรุปผลรายเดือนอัตโนมัติ
+            บันทึกการมาเรียน ขาด ลา มาสาย เชื่อมต่อฐานข้อมูลพร้อมสรุปผล Google Sheets
           </p>
         </div>
 
@@ -169,6 +324,18 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
               สรุปผลรายเดือน
             </button>
           </div>
+
+          {/* Google Sheet Summary Button */}
+          <button
+            type="button"
+            id="btn-open-google-sheet-summary"
+            onClick={() => setIsGoogleSheetsModalOpen(true)}
+            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+            title="เปิดรายงานสรุปผล Google Sheets"
+          >
+            <FileSpreadsheet className="w-4 h-4 text-emerald-100" />
+            <span>สรุปผล Google Sheets</span>
+          </button>
 
           {/* Date Picker (in Daily Mode) */}
           {viewMode === 'daily' && (
@@ -355,15 +522,30 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
             <div>
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <FileSpreadsheet className="w-4 h-4 text-teal-600" />
-                <span>รายงานสรุปผลการเข้าเรียนรายเดือน (กันยายน 2569)</span>
+                <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+                <span>รายงานสรุปผลการเข้าเรียนสะสม ({classroom.name})</span>
               </h2>
               <p className="text-xs text-slate-500">
-                สรุปสถิติจำนวนวันมาเรียน สาย ลา และเปอร์เซ็นต์ความสม่ำเสมอของนักเรียนทุกคน
+                สถิติจำนวนวันมาเรียน สาย ลา และเปอร์เซ็นต์ความสม่ำเสมอของนักเรียนทุกคน
               </p>
             </div>
-            <div className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-3 py-1.5 rounded-xl self-start">
-              จำนวนวันเรียนทั้งหมดในเดือน: 20 วัน
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={handleCopyTSV}
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                {copySuccess ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copySuccess ? 'คัดลอกแล้ว!' : 'คัดลอกตาราง'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsGoogleSheetsModalOpen(true)}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-100" />
+                <span>สรุปผล Google Sheets</span>
+              </button>
             </div>
           </div>
 
@@ -377,63 +559,224 @@ export const AttendanceManager: React.FC<AttendanceManagerProps> = ({
                   <th className="py-3 px-3 text-center">สาย (วัน)</th>
                   <th className="py-3 px-3 text-center">ลา (วัน)</th>
                   <th className="py-3 px-3 text-center">ขาด (วัน)</th>
+                  <th className="py-3 px-3 text-center">รวมวันเรียน</th>
                   <th className="py-3 px-3 text-center">ความสม่ำเสมอ</th>
                   <th className="py-3 px-3 text-center">สถานะประเมิน</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {studentList.map((std, i) => {
-                  // Mock cumulative monthly stats
-                  const simulated = [
-                    { present: 19, late: 1, leave: 0, absent: 0, pct: 98 },
-                    { present: 17, late: 2, leave: 1, absent: 0, pct: 92 },
-                    { present: 20, late: 0, leave: 0, absent: 0, pct: 100 },
-                    { present: 16, late: 1, leave: 2, absent: 1, pct: 85 },
-                  ][i] || { present: 18, late: 1, leave: 1, absent: 0, pct: 95 };
-
-                  return (
-                    <tr key={std.id} className="hover:bg-slate-50/70 transition-colors">
-                      <td className="py-3 px-3 font-mono text-slate-500 font-medium">
-                        #{i + 1} ({std.studentId})
-                      </td>
-                      <td className="py-3 px-3 font-semibold text-slate-900">{std.name}</td>
-                      <td className="py-3 px-3 text-center font-bold text-emerald-600">{simulated.present}</td>
-                      <td className="py-3 px-3 text-center font-bold text-amber-600">{simulated.late}</td>
-                      <td className="py-3 px-3 text-center font-bold text-blue-600">{simulated.leave}</td>
-                      <td className="py-3 px-3 text-center font-bold text-rose-600">{simulated.absent}</td>
-                      <td className="py-3 px-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="w-16 h-2 bg-slate-200 rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full ${
-                                simulated.pct >= 90
-                                  ? 'bg-emerald-500'
-                                  : simulated.pct >= 80
-                                  ? 'bg-teal-500'
-                                  : 'bg-amber-500'
-                              }`}
-                              style={{ width: `${simulated.pct}%` }}
-                            ></div>
-                          </div>
-                          <span className="font-bold text-slate-800">{simulated.pct}%</span>
+                {summaryData.map((std) => (
+                  <tr key={std.id} className="hover:bg-slate-50/70 transition-colors">
+                    <td className="py-3 px-3 font-mono text-slate-500 font-medium">
+                      #{std.index} ({std.studentId})
+                    </td>
+                    <td className="py-3 px-3 font-semibold text-slate-900">{std.name}</td>
+                    <td className="py-3 px-3 text-center font-bold text-emerald-600">{std.present}</td>
+                    <td className="py-3 px-3 text-center font-bold text-amber-600">{std.late}</td>
+                    <td className="py-3 px-3 text-center font-bold text-blue-600">{std.leave}</td>
+                    <td className="py-3 px-3 text-center font-bold text-rose-600">{std.absent}</td>
+                    <td className="py-3 px-3 text-center font-semibold text-slate-700">{std.total}</td>
+                    <td className="py-3 px-3 text-center">
+                      <div className="flex items-center justify-center gap-2">
+                        <div className="w-16 h-2 bg-slate-200 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${
+                              std.rate >= 90
+                                ? 'bg-emerald-500'
+                                : std.rate >= 80
+                                ? 'bg-teal-500'
+                                : 'bg-amber-500'
+                            }`}
+                            style={{ width: `${std.rate}%` }}
+                          ></div>
                         </div>
-                      </td>
-                      <td className="py-3 px-3 text-center">
+                        <span className="font-bold text-slate-800">{std.rate}%</span>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-center">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
+                          std.rate >= 90
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : std.rate >= 80
+                            ? 'bg-amber-100 text-amber-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}
+                      >
+                        {std.statusText}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* Google Sheets Summary Modal */}
+      {isGoogleSheetsModalOpen && (
+        <div
+          id="google-sheets-summary-modal-backdrop"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-xs animate-fadeIn"
+        >
+          <div
+            id="google-sheets-summary-card"
+            className="w-full max-w-4xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]"
+          >
+            {/* Modal Header */}
+            <div className="p-5 sm:p-6 bg-gradient-to-r from-emerald-700 via-teal-700 to-emerald-800 text-white flex items-center justify-between shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center text-white border border-white/30 shadow-md">
+                  <FileSpreadsheet className="w-6 h-6 text-emerald-100" />
+                </div>
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-white/20 text-[10px] font-bold tracking-wide uppercase">
+                    <Sparkles className="w-3 h-3 text-amber-300" />
+                    <span>สรุปผล Google Sheets & Excel</span>
+                  </div>
+                  <h2 className="text-base sm:text-lg font-bold mt-0.5">
+                    รายงานสรุปผลการเข้าเรียน: {classroom.name}
+                  </h2>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                id="btn-close-google-sheets-modal"
+                onClick={() => setIsGoogleSheetsModalOpen(false)}
+                className="p-2 rounded-full hover:bg-white/20 text-white/80 hover:text-white transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quick Metrics Bar */}
+            <div className="p-4 bg-emerald-50/50 border-b border-emerald-100 grid grid-cols-2 sm:grid-cols-4 gap-3 shrink-0">
+              <div className="bg-white p-3 rounded-xl border border-emerald-100">
+                <span className="text-[11px] font-medium text-slate-500">จำนวนนักเรียนทั้งหมด</span>
+                <p className="text-lg font-bold text-slate-800">{studentList.length} คน</p>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-emerald-100">
+                <span className="text-[11px] font-medium text-slate-500">อัตราการเข้าเรียนเฉลี่ย</span>
+                <p className="text-lg font-bold text-emerald-700">{avgAttendanceRate}%</p>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-emerald-100">
+                <span className="text-[11px] font-medium text-slate-500">เกณฑ์ดีเยี่ยม (&ge;90%)</span>
+                <p className="text-lg font-bold text-teal-700">
+                  {summaryData.filter((s) => s.rate >= 90).length} คน
+                </p>
+              </div>
+              <div className="bg-white p-3 rounded-xl border border-emerald-100">
+                <span className="text-[11px] font-medium text-slate-500">บันทึกแล้วทั้งหมด</span>
+                <p className="text-lg font-bold text-slate-800">{totalRecordedDays} วันเรียน</p>
+              </div>
+            </div>
+
+            {/* Action Buttons Toolbar */}
+            <div className="p-4 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  id="btn-copy-tsv-google-sheet"
+                  onClick={handleCopyTSV}
+                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  {copySuccess ? <Check className="w-4 h-4 text-emerald-200" /> : <Copy className="w-4 h-4" />}
+                  <span>{copySuccess ? 'คัดลอกตารางแล้ว! (พร้อมกด Ctrl+V)' : 'คัดลอกตารางสำหรับวางใน Google Sheets'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  id="btn-download-csv-google-sheet"
+                  onClick={handleExportCSV}
+                  className="px-3.5 py-2 bg-white hover:bg-slate-100 text-slate-800 font-bold text-xs rounded-xl border border-slate-300 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+                >
+                  <Download className="w-4 h-4 text-emerald-600" />
+                  <span>ดาวน์โหลด CSV (UTF-8 สำหรับ Google Sheets / Excel)</span>
+                </button>
+              </div>
+
+              <a
+                href="https://sheets.new"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-slate-900 hover:bg-slate-800 text-white font-semibold text-xs rounded-xl shadow-xs transition-all cursor-pointer"
+              >
+                <span>เปิด Google Sheets ใหม่</span>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+              </a>
+            </div>
+
+            {/* Instruction Tip */}
+            <div className="px-5 py-2 bg-blue-50/70 border-b border-blue-100 text-[11px] text-blue-800 flex items-center gap-2 shrink-0">
+              <Info className="w-4 h-4 text-blue-600 shrink-0" />
+              <span>
+                <strong>เคล็ดลับ:</strong> คลิกปุ่ม "คัดลอกตาราง" ด้านบน แล้วเปิดหน้า Google Sheets ว่าง จากนั้นกด <strong>Ctrl + V</strong> ข้อมูลจะถูกจัดลงตารางและคอลัมน์อย่างถูกต้องสมบูรณ์ทันที
+              </span>
+            </div>
+
+            {/* Table Preview (Spreadsheet Styled) */}
+            <div className="overflow-auto grow p-4">
+              <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden shadow-xs">
+                <thead className="bg-emerald-50 text-emerald-950 uppercase font-bold sticky top-0 border-b border-emerald-200">
+                  <tr>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center w-12">ลำดับ</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200">เลขประจำตัว</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200">ชื่อ - นามสกุล</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center bg-emerald-100/60">มา (วัน)</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center bg-amber-100/60">สาย (วัน)</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center bg-blue-100/60">ลา (วัน)</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center bg-rose-100/60">ขาด (วัน)</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center">รวมวันเรียน</th>
+                    <th className="py-2.5 px-3 border-r border-emerald-200 text-center">เปอร์เซ็นต์</th>
+                    <th className="py-2.5 px-3 text-center">สถานะ</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {summaryData.map((std, i) => (
+                    <tr key={std.id} className={i % 2 === 0 ? 'bg-white hover:bg-slate-50' : 'bg-slate-50/50 hover:bg-slate-50'}>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-mono text-slate-500">{std.index}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 font-mono font-medium text-slate-700">{std.studentId}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 font-semibold text-slate-900">{std.name}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-bold text-emerald-700">{std.present}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-bold text-amber-700">{std.late}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-bold text-blue-700">{std.leave}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-bold text-rose-700">{std.absent}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-semibold text-slate-800">{std.total}</td>
+                      <td className="py-2 px-3 border-r border-slate-200 text-center font-bold text-slate-900">{std.rate}%</td>
+                      <td className="py-2 px-3 text-center">
                         <span
-                          className={`px-2.5 py-1 rounded-full text-[10px] font-bold ${
-                            simulated.pct >= 90
+                          className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            std.rate >= 90
                               ? 'bg-emerald-100 text-emerald-800'
-                              : 'bg-amber-100 text-amber-800'
+                              : std.rate >= 80
+                              ? 'bg-amber-100 text-amber-800'
+                              : 'bg-rose-100 text-rose-800'
                           }`}
                         >
-                          {simulated.pct >= 90 ? 'ดีเยี่ยม' : 'ผ่านเกณฑ์'}
+                          {std.statusText}
                         </span>
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-100 border-t border-slate-200 flex items-center justify-between shrink-0">
+              <span className="text-xs text-slate-500">
+                ข้อมูลสรุปผลอัปเดตอัตโนมัติตามการบันทึกการเช็คชื่อแบบเรียลไทม์
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsGoogleSheetsModalOpen(false)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold rounded-xl transition-colors cursor-pointer"
+              >
+                ปิดหน้าต่าง
+              </button>
+            </div>
           </div>
         </div>
       )}

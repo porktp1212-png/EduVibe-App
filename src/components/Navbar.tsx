@@ -29,6 +29,7 @@ interface NavbarProps {
   pendingSubmissionsCount: number;
   onOpenCreateClassroom?: () => void;
   onOpenJoinClassroom?: () => void;
+  onLeaveClassroom?: (classroomId: string) => void;
   onOpenLogin?: () => void;
   onOpenEditProfile?: () => void;
 }
@@ -41,6 +42,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   pendingSubmissionsCount,
   onOpenCreateClassroom,
   onOpenJoinClassroom,
+  onLeaveClassroom,
   onOpenLogin,
   onOpenEditProfile,
 }) => {
@@ -65,7 +67,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   สังกัด กทม.
                 </span>
               </div>
-              <p className="text-xs text-slate-500 hidden sm:block">ระบบจัดการเรียนรู้อัจฉริยะ (Thainiyom Smart LMS)</p>
+              <p className="text-xs text-slate-500 hidden sm:block">ระบบบริหารจัดการชั้นเรียน (Thainiyom Smart LMS)</p>
             </div>
 
             {/* Admin Badge */}
@@ -145,6 +147,23 @@ export const Navbar: React.FC<NavbarProps> = ({
                         >
                           <KeyRound className="w-4 h-4" />
                           <span>+ เข้าร่วมห้องเรียนด้วยรหัส</span>
+                        </button>
+                      </div>
+                    )}
+
+                    {currentUser?.role === 'student' && activeClassroom && onLeaveClassroom && (
+                      <div className="p-1.5 border-t border-slate-100 mt-1">
+                        <button
+                          type="button"
+                          id="btn-dropdown-leave-class"
+                          onClick={() => {
+                            setShowClassDropdown(false);
+                            onLeaveClassroom(activeClassroom.id);
+                          }}
+                          className="w-full text-left px-3 py-2 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded-lg flex items-center gap-2 transition-colors cursor-pointer"
+                        >
+                          <LogOut className="w-4 h-4 text-rose-500" />
+                          <span>ออกจากห้องเรียนนี้</span>
                         </button>
                       </div>
                     )}

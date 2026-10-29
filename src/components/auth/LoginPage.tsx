@@ -192,7 +192,7 @@ export const LoginPage: React.FC = () => {
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-[1.15]">
               โรงเรียนไทยนิยมสงเคราะห์ <br />
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-sky-400 via-blue-300 to-indigo-300">
-                ระบบจัดการเรียนรู้อัจฉริยะ
+                ระบบบริหารจัดการชั้นเรียน
               </span>
             </h1>
 

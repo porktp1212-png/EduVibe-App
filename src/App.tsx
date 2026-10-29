@@ -31,6 +31,7 @@ import {
   subscribeToLessons,
   subscribeClassroomStudents,
   getClassroomStudents,
+  removeStudentFromClassroom,
   clearAllSystemData,
 } from './services/firestoreService';
 import type {
@@ -162,6 +163,28 @@ const AppContent: React.FC = () => {
     });
     setActiveClassroom(joined);
     setIsJoinClassModalOpen(false);
+  };
+
+  const handleStudentLeaveClassroom = async (classroomId: string) => {
+    if (!currentUser) return;
+    try {
+      await removeStudentFromClassroom(classroomId, currentUser.id);
+      if (currentUser.studentId) {
+        await removeStudentFromClassroom(classroomId, currentUser.studentId);
+      }
+      if (currentUser.email) {
+        await removeStudentFromClassroom(classroomId, currentUser.email);
+      }
+      setClassrooms((prev) => {
+        const next = prev.filter((c) => c.id !== classroomId);
+        if (activeClassroom?.id === classroomId) {
+          setActiveClassroom(next.length > 0 ? next[0] : null);
+        }
+        return next;
+      });
+    } catch (err) {
+      console.error('Error leaving classroom:', err);
+    }
   };
 
   // Assignment selected by student from Dashboard to jump straight to submit
@@ -324,6 +347,7 @@ const AppContent: React.FC = () => {
         pendingSubmissionsCount={pendingSubmissionsCount}
         onOpenCreateClassroom={() => setIsCreateClassModalOpen(true)}
         onOpenJoinClassroom={() => setIsJoinClassModalOpen(true)}
+        onLeaveClassroom={handleStudentLeaveClassroom}
         onOpenLogin={() => setIsLoginModalOpen(true)}
         onOpenEditProfile={() => setIsEditProfileOpen(true)}
       />
@@ -517,6 +541,7 @@ const AppContent: React.FC = () => {
                   setActiveTab('assignments');
                 }}
                 onClassroomJoined={handleClassroomJoined}
+                onLeaveClassroom={handleStudentLeaveClassroom}
                 onOpenEditProfile={() => setIsEditProfileOpen(true)}
               />
             )}
