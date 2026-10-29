@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   Download,
@@ -10,8 +10,11 @@ import {
   Music,
   Video,
   File,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { formatFileSize, getFileCategory, downloadOrOpenFile } from '../../lib/fileUpload';
+import { getFileFromCloud } from '../../services/cloudStorageService';
 import { PdfViewer } from './PdfViewer';
 
 interface UniversalFileViewerModalProps {
@@ -21,6 +24,8 @@ interface UniversalFileViewerModalProps {
     name: string;
     url?: string;
     data?: string;
+    fileId?: string;
+    id?: string;
     type?: string;
     size?: number;
   } | null;
@@ -31,9 +36,58 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
   onClose,
   file,
 }) => {
+  const [resolvedData, setResolvedData] = useState<string | null>(file?.data || null);
+  const [isResolving, setIsResolving] = useState<boolean>(false);
+  const [resolveError, setResolveError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen || !file) {
+      setResolvedData(null);
+      setIsResolving(false);
+      setResolveError(null);
+      return;
+    }
+
+    if (file.data && file.data.startsWith('data:')) {
+      setResolvedData(file.data);
+      setIsResolving(false);
+      setResolveError(null);
+      return;
+    }
+
+    let isMounted = true;
+    setIsResolving(true);
+    setResolveError(null);
+
+    getFileFromCloud(file)
+      .then((res) => {
+        if (!isMounted) return;
+        if (res && res.data) {
+          setResolvedData(res.data);
+        } else if (file.url) {
+          // Fallback to url
+          setResolvedData(file.url);
+        } else {
+          setResolveError('ไม่พบข้อมูลไฟล์ในระบบคลาวด์');
+        }
+      })
+      .catch((err) => {
+        if (!isMounted) return;
+        console.warn('Error resolving cloud file:', err);
+        setResolveError('เกิดข้อผิดพลาดในการโหลดไฟล์');
+      })
+      .finally(() => {
+        if (isMounted) setIsResolving(false);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, file?.name, file?.data, file?.url, (file as any)?.fileId, (file as any)?.id]);
+
   if (!isOpen || !file) return null;
 
-  const fileSrc = file.data || file.url || '';
+  const fileSrc = resolvedData || file.data || file.url || '';
   const category = getFileCategory(file.name, file.type);
   const isImage = category === 'image';
   const isPdf = category === 'pdf';
@@ -90,6 +144,7 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
               </h3>
               <p className="text-[11px] text-slate-400">
                 {formatFileSize(file.size)} • {file.type || 'ไฟล์แนบ'}
+                {isResolving && <span className="ml-2 text-teal-400 font-semibold">• ซิงค์จากคลาวด์...</span>}
               </p>
             </div>
           </div>
@@ -100,7 +155,7 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
                 <button
                   type="button"
                   onClick={handleOpenNewTab}
-                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors"
+                  className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
                   title="เปิดในแท็บใหม่"
                 >
                   <ExternalLink className="w-4 h-4" />
@@ -108,7 +163,7 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
                 <button
                   type="button"
                   onClick={handleDownload}
-                  className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
+                  className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer"
                   title="ดาวน์โหลดไฟล์"
                 >
                   <Download className="w-3.5 h-3.5" />
@@ -119,7 +174,7 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
             <button
               type="button"
               onClick={onClose}
-              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors ml-1"
+              className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors ml-1 cursor-pointer"
               title="ปิด"
             >
               <X className="w-4 h-4" />
@@ -129,7 +184,13 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
 
         {/* Content Viewer Body */}
         <div className={`grow overflow-auto ${isPdf ? 'p-2 sm:p-4 bg-slate-950' : 'p-4 sm:p-6 bg-slate-100'} flex items-center justify-center min-h-[360px]`}>
-          {isImage && fileSrc ? (
+          {isResolving && !fileSrc ? (
+            <div className="flex flex-col items-center justify-center gap-3 text-slate-500 py-16">
+              <Loader2 className="w-10 h-10 animate-spin text-teal-600" />
+              <p className="text-sm font-semibold text-slate-800">กำลังเชื่อมต่อและโหลดไฟล์ผลงาน...</p>
+              <p className="text-xs text-slate-500">ซิงค์ไฟล์จากฐานข้อมูลคลาวด์เพื่อให้เปิดดูได้ทันทีข้ามอุปกรณ์</p>
+            </div>
+          ) : isImage && fileSrc ? (
             <div className="max-w-full max-h-[70vh] flex items-center justify-center">
               <img
                 src={fileSrc}
@@ -137,9 +198,15 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
                 className="max-w-full max-h-[70vh] object-contain rounded-xl shadow-lg border border-slate-300 bg-white"
               />
             </div>
-          ) : isPdf && fileSrc ? (
+          ) : isPdf ? (
             <div className="w-full h-[76vh]">
-              <PdfViewer file={file} />
+              <PdfViewer
+                file={{
+                  ...file,
+                  data: fileSrc.startsWith('data:') ? fileSrc : file.data,
+                  url: fileSrc.startsWith('data:') ? undefined : fileSrc,
+                }}
+              />
             </div>
           ) : isVideo && fileSrc ? (
             <div className="w-full max-w-2xl bg-black rounded-2xl overflow-hidden shadow-xl">
@@ -149,65 +216,70 @@ export const UniversalFileViewerModal: React.FC<UniversalFileViewerModalProps> =
                 autoPlay
                 className="w-full max-h-[65vh] object-contain"
               >
-                เบราว์เซอร์ของคุณไม่รองรับการเล่นวิดีโอนี้
+                เบราว์เซอร์ไม่รองรับการเล่นวิดีโอโดยตรง
               </video>
             </div>
           ) : isAudio && fileSrc ? (
-            <div className="w-full max-w-md bg-white p-6 rounded-3xl shadow-lg border border-slate-200 text-center space-y-4">
-              <div className="w-20 h-20 bg-pink-50 rounded-2xl flex items-center justify-center mx-auto text-pink-600 shadow-inner">
-                <Music className="w-10 h-10" />
+            <div className="p-8 bg-white rounded-2xl shadow-md border border-slate-200 text-center space-y-4 max-w-md w-full">
+              <div className="w-16 h-16 rounded-full bg-pink-100 text-pink-600 flex items-center justify-center mx-auto">
+                <Music className="w-8 h-8" />
               </div>
-              <div>
-                <h4 className="font-bold text-sm text-slate-800 truncate">{file.name}</h4>
-                <p className="text-xs text-slate-500 mt-1">{formatFileSize(file.size)}</p>
-              </div>
-              <audio src={fileSrc} controls className="w-full">
-                เบราว์เซอร์ของคุณไม่รองรับการเล่นไฟล์เสียงนี้
-              </audio>
+              <h4 className="font-bold text-sm text-slate-800 truncate">{file.name}</h4>
+              <audio src={fileSrc} controls className="w-full mt-2" />
             </div>
           ) : (
-            /* Document, Archive, Spreadsheet, Presentation, or unknown */
-            <div className="max-w-md w-full bg-white p-8 rounded-3xl shadow-xl border border-slate-200 text-center space-y-5">
-              <div className="w-24 h-24 rounded-3xl bg-slate-50 border border-slate-100 flex items-center justify-center mx-auto shadow-inner">
-                {renderIcon()}
-              </div>
-
+            /* Document / Office / Other File Format Presentation */
+            <div className="p-8 sm:p-10 bg-white rounded-3xl shadow-xl border border-slate-200 text-center max-w-md w-full space-y-4">
+              <div className="flex justify-center">{renderIcon()}</div>
               <div>
-                <h4 className="font-bold text-base text-slate-900 break-words px-2">{file.name}</h4>
-                <p className="text-xs text-slate-500 mt-1.5">
-                  ขนาดไฟล์ {formatFileSize(file.size)} • ชนิดไฟล์: {file.type || 'เอกสาร'}
+                <h4 className="font-bold text-base text-slate-900 truncate" title={file.name}>
+                  {file.name}
+                </h4>
+                <p className="text-xs text-slate-500 mt-1">
+                  ประเภท: {file.type || category} • ขนาด: {formatFileSize(file.size)}
+                </p>
+                <p className="text-xs text-slate-600 mt-2 bg-slate-50 p-3 rounded-xl border border-slate-100">
+                  ไฟล์เอกสารประเภทนี้สามารถเปิดด้วยโปรแกรมเฉพาะทางบนเครื่อง หรือดาวน์โหลดเพื่อเปิดได้ทันที
                 </p>
               </div>
 
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-1.5 text-left">
-                <p className="font-medium text-slate-800">คำแนะนำในการเปิดดู:</p>
-                <p className="text-slate-500 text-[11px] leading-relaxed">
-                  ไฟล์ชนิดนี้สามารถดาวน์โหลดเพื่อเปิดดูด้วยโปรแกรมบนคอมพิวเตอร์ หรือเปิดผ่านแท็บใหม่เพื่อดูด้วยแอปพลิเคชันที่รองรับ
-                </p>
-              </div>
-
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-2.5 pt-2">
-                <button
-                  type="button"
-                  onClick={handleDownload}
-                  className="w-full sm:w-auto px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
-                >
-                  <Download className="w-4 h-4" />
-                  <span>ดาวน์โหลดไฟล์นี้</span>
-                </button>
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
                 {fileSrc && (
                   <button
                     type="button"
                     onClick={handleOpenNewTab}
-                    className="w-full sm:w-auto px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-xl transition-colors flex items-center justify-center gap-2"
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
                   >
-                    <ExternalLink className="w-4 h-4" />
-                    <span>เปิดในแท็บใหม่</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>เปิดดูในแท็บใหม่</span>
                   </button>
                 )}
+                <button
+                  type="button"
+                  onClick={handleDownload}
+                  className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-md shadow-teal-600/20 cursor-pointer"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>ดาวน์โหลดไฟล์</span>
+                </button>
               </div>
             </div>
           )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-5 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-xs text-slate-500 shrink-0">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+            <span>ระบบซิงค์ไฟล์เรียลไทม์ (Cloud Sync Ready)</span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="px-4 py-1.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 font-semibold text-xs transition-colors cursor-pointer"
+          >
+            ปิด
+          </button>
         </div>
       </div>
     </div>

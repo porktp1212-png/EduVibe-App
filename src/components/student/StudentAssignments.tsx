@@ -79,11 +79,16 @@ export const StudentAssignments: React.FC<StudentAssignmentsProps> = ({
 
   const getSubmissionFiles = (sub: Submission): AttachedFile[] => {
     if (sub.files && Array.isArray(sub.files) && sub.files.length > 0) {
-      return sub.files;
+      return sub.files.map((f) => ({
+        ...f,
+        fileId: f.fileId || (f.url && f.url.includes('/api/files/') ? f.url.split('/api/files/')[1]?.split('?')[0] : undefined),
+      }));
     }
     if (sub.fileUrl || sub.fileData || sub.fileName) {
+      const extractedId = sub.fileUrl && sub.fileUrl.includes('/api/files/') ? sub.fileUrl.split('/api/files/')[1]?.split('?')[0] : undefined;
       return [
         {
+          fileId: extractedId,
           name: sub.fileName || 'ไฟล์ผลงานที่แนบไว้',
           type: sub.fileType || 'application/octet-stream',
           size: sub.fileSize || 0,

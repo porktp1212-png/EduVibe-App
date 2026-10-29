@@ -28,6 +28,7 @@ import type {
   RubricScoreItem,
   AttachedFile,
 } from '../types';
+import { saveFileToCloud, extractFileId } from './cloudStorageService';
 
 /**
  * Recursively strips undefined values from an object or array so Firestore setDoc / updateDoc never fails.
@@ -582,24 +583,73 @@ export function subscribeLessons(classroomId: string, callback: (lessons: Lesson
   }
 }
 
+async function ensureFilesSyncedToCloud(files?: AttachedFile[]): Promise<AttachedFile[]> {
+  if (!files || !Array.isArray(files) || files.length === 0) return [];
+  const processed: AttachedFile[] = [];
+
+  for (const f of files) {
+    if (!f) continue;
+    let fileId = extractFileId(f);
+    let next = { ...f };
+
+    // If file has raw base64 data but not yet assigned a cloud fileId, save to cloud_files
+    if ((!fileId || !fileId.startsWith('cfile_')) && next.data && next.data.startsWith('data:')) {
+      try {
+        const saved = await saveFileToCloud({
+          name: next.name || 'file',
+          type: next.type,
+          size: next.size,
+          data: next.data,
+        });
+        fileId = saved.fileId;
+        next.fileId = fileId;
+        next.url = saved.url;
+      } catch (err) {
+        console.warn('Error syncing file to cloud storage:', err);
+      }
+    }
+
+    if (fileId) {
+      next.fileId = fileId;
+      if (!next.url) {
+        next.url = `/api/files/${fileId}`;
+      }
+    }
+
+    // If data is very large (>100KB), strip from parent document to guarantee no 1MB doc overflow,
+    // since the data is safely persisted in cloud_files/{fileId}
+    if (next.data && next.data.length > 100000) {
+      delete next.data;
+    }
+    // Ensure url is never a massive data: URL
+    if (next.url && next.url.startsWith('data:') && next.url.length > 100000) {
+      if (fileId) {
+        next.url = `/api/files/${fileId}`;
+      } else {
+        delete next.url;
+      }
+    }
+
+    processed.push(next);
+  }
+
+  return processed;
+}
+
 export async function saveLesson(lesson: Lesson): Promise<void> {
   const path = `lessons/${lesson.id}`;
   try {
     const safeLesson = { ...lesson };
-    if (safeLesson.mediaUrl && safeLesson.mediaUrl.startsWith('data:') && safeLesson.mediaUrl.length > 150000) {
-      delete safeLesson.mediaUrl;
+    if (safeLesson.files && safeLesson.files.length > 0) {
+      safeLesson.files = await ensureFilesSyncedToCloud(safeLesson.files);
     }
-    if (safeLesson.files && Array.isArray(safeLesson.files)) {
-      safeLesson.files = safeLesson.files.map((f) => {
-        const next = { ...f };
-        if (next.data && next.data.length > 150000) {
-          delete next.data;
-        }
-        if (next.url && next.url.startsWith('data:') && next.url.length > 150000) {
-          delete next.url;
-        }
-        return next;
-      });
+    if (safeLesson.mediaUrl && safeLesson.mediaUrl.startsWith('data:') && safeLesson.mediaUrl.length > 100000) {
+      const primary = safeLesson.files?.[0];
+      if (primary?.url) {
+        safeLesson.mediaUrl = primary.url;
+      } else {
+        delete safeLesson.mediaUrl;
+      }
     }
 
     const sanitized = sanitizeForFirestore(safeLesson);
@@ -648,20 +698,16 @@ export async function saveAssignment(assignment: Assignment): Promise<void> {
   const path = `assignments/${assignment.id}`;
   try {
     const safeAssignment = { ...assignment };
-    if (safeAssignment.fileUrl && safeAssignment.fileUrl.startsWith('data:') && safeAssignment.fileUrl.length > 150000) {
-      delete safeAssignment.fileUrl;
+    if (safeAssignment.files && safeAssignment.files.length > 0) {
+      safeAssignment.files = await ensureFilesSyncedToCloud(safeAssignment.files);
     }
-    if (safeAssignment.files && Array.isArray(safeAssignment.files)) {
-      safeAssignment.files = safeAssignment.files.map((f) => {
-        const next = { ...f };
-        if (next.data && next.data.length > 150000) {
-          delete next.data;
-        }
-        if (next.url && next.url.startsWith('data:') && next.url.length > 150000) {
-          delete next.url;
-        }
-        return next;
-      });
+    if (safeAssignment.fileUrl && safeAssignment.fileUrl.startsWith('data:') && safeAssignment.fileUrl.length > 100000) {
+      const primary = safeAssignment.files?.[0];
+      if (primary?.url) {
+        safeAssignment.fileUrl = primary.url;
+      } else {
+        delete safeAssignment.fileUrl;
+      }
     }
 
     const sanitized = sanitizeForFirestore(safeAssignment);
@@ -792,24 +838,27 @@ export async function submitHomework(submission: Submission): Promise<void> {
 
   try {
     const safeSubmission = { ...submission };
-    // If base64 payload is larger than 150KB, strip it from Firestore document to stay well under 1MB limit
-    if (safeSubmission.fileData && safeSubmission.fileData.length > 150000) {
+    if (safeSubmission.files && safeSubmission.files.length > 0) {
+      safeSubmission.files = await ensureFilesSyncedToCloud(safeSubmission.files);
+    }
+    const primaryFile = safeSubmission.files?.[0];
+    if (primaryFile) {
+      safeSubmission.fileName = safeSubmission.fileName || primaryFile.name;
+      safeSubmission.fileType = safeSubmission.fileType || primaryFile.type;
+      safeSubmission.fileSize = safeSubmission.fileSize || primaryFile.size;
+      if (primaryFile.url) {
+        safeSubmission.fileUrl = primaryFile.url;
+      }
+    }
+    if (safeSubmission.fileData && safeSubmission.fileData.length > 100000) {
       delete safeSubmission.fileData;
     }
-    if (safeSubmission.fileUrl && safeSubmission.fileUrl.startsWith('data:') && safeSubmission.fileUrl.length > 150000) {
-      delete safeSubmission.fileUrl;
-    }
-    if (safeSubmission.files && Array.isArray(safeSubmission.files)) {
-      safeSubmission.files = safeSubmission.files.map(f => {
-        const next = { ...f };
-        if (next.data && next.data.length > 150000) {
-          delete next.data;
-        }
-        if (next.url && next.url.startsWith('data:') && next.url.length > 150000) {
-          delete next.url;
-        }
-        return next;
-      });
+    if (safeSubmission.fileUrl && safeSubmission.fileUrl.startsWith('data:') && safeSubmission.fileUrl.length > 100000) {
+      if (primaryFile?.url) {
+        safeSubmission.fileUrl = primaryFile.url;
+      } else {
+        delete safeSubmission.fileUrl;
+      }
     }
 
     const sanitized = sanitizeForFirestore(safeSubmission);

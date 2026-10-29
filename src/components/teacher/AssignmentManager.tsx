@@ -592,9 +592,13 @@ export const AssignmentManager: React.FC<AssignmentManagerProps> = ({
                     <FileListDisplay
                       files={
                         activeAssignment.files && activeAssignment.files.length > 0
-                          ? activeAssignment.files
+                          ? activeAssignment.files.map((f) => ({
+                              ...f,
+                              fileId: f.fileId || (f.url && f.url.includes('/api/files/') ? f.url.split('/api/files/')[1]?.split('?')[0] : undefined),
+                            }))
                           : [
                               {
+                                fileId: activeAssignment.fileUrl && activeAssignment.fileUrl.includes('/api/files/') ? activeAssignment.fileUrl.split('/api/files/')[1]?.split('?')[0] : undefined,
                                 name: activeAssignment.fileName || 'ไฟล์ใบงานแนบ',
                                 type: activeAssignment.fileType || 'application/octet-stream',
                                 size: activeAssignment.fileSize || 0,

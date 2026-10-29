@@ -291,10 +291,14 @@ export const LessonRepository: React.FC<LessonRepositoryProps> = ({
             // Collect all files
             const lessonFiles: AttachedFile[] =
               lesson.files && Array.isArray(lesson.files) && lesson.files.length > 0
-                ? lesson.files
+                ? lesson.files.map((f) => ({
+                    ...f,
+                    fileId: f.fileId || (f.url && f.url.includes('/api/files/') ? f.url.split('/api/files/')[1]?.split('?')[0] : undefined),
+                  }))
                 : lesson.fileName
                 ? [
                     {
+                      fileId: lesson.mediaUrl && lesson.mediaUrl.includes('/api/files/') ? lesson.mediaUrl.split('/api/files/')[1]?.split('?')[0] : undefined,
                       name: lesson.fileName,
                       type: lesson.mediaType === 'pdf' ? 'application/pdf' : 'application/octet-stream',
                       size: lesson.fileSize || 0,

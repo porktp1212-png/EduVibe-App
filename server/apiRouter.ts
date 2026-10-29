@@ -50,6 +50,141 @@ function saveMetaStore() {
   }
 }
 
+// Load Firebase configuration for Firestore cloud persistence
+let firebaseAppConfig: any = null;
+try {
+  const cfgPath = path.join(process.cwd(), "firebase-applet-config.json");
+  if (fs.existsSync(cfgPath)) {
+    firebaseAppConfig = JSON.parse(fs.readFileSync(cfgPath, "utf-8"));
+  }
+} catch {
+  // ignore
+}
+
+const CHUNK_SIZE = 650000;
+
+async function saveFileToFirestoreRest(
+  fileId: string,
+  name: string,
+  type: string,
+  size: number,
+  dataUrl: string
+): Promise<void> {
+  if (!firebaseAppConfig) return;
+  const projectId = firebaseAppConfig.projectId;
+  const apiKey = firebaseAppConfig.apiKey;
+  const databaseId = firebaseAppConfig.firestoreDatabaseId || "(default)";
+
+  try {
+    if (dataUrl.length <= CHUNK_SIZE) {
+      const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/uploaded_files/${fileId}?key=${apiKey}`;
+      await fetch(url, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: {
+            id: { stringValue: fileId },
+            fileId: { stringValue: fileId },
+            name: { stringValue: name },
+            type: { stringValue: type },
+            size: { integerValue: String(size) },
+            data: { stringValue: dataUrl },
+            isChunked: { booleanValue: false },
+            createdAt: { stringValue: new Date().toISOString() },
+          },
+        }),
+      });
+    } else {
+      const chunkCount = Math.ceil(dataUrl.length / CHUNK_SIZE);
+      const docUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/uploaded_files/${fileId}?key=${apiKey}`;
+      await fetch(docUrl, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: {
+            id: { stringValue: fileId },
+            fileId: { stringValue: fileId },
+            name: { stringValue: name },
+            type: { stringValue: type },
+            size: { integerValue: String(size) },
+            isChunked: { booleanValue: true },
+            chunkCount: { integerValue: String(chunkCount) },
+            createdAt: { stringValue: new Date().toISOString() },
+          },
+        }),
+      });
+
+      for (let i = 0; i < chunkCount; i++) {
+        const slice = dataUrl.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+        const chunkUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/uploaded_files/${fileId}/chunks/${i}?key=${apiKey}`;
+        await fetch(chunkUrl, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            fields: {
+              index: { integerValue: String(i) },
+              chunk: { stringValue: slice },
+            },
+          }),
+        });
+      }
+    }
+  } catch (err) {
+    console.warn("saveFileToFirestoreRest notice:", err);
+  }
+}
+
+async function fetchFileFromFirestoreRest(
+  fileId: string
+): Promise<{ buffer: Buffer; name: string; type: string } | null> {
+  if (!firebaseAppConfig) return null;
+  const projectId = firebaseAppConfig.projectId;
+  const apiKey = firebaseAppConfig.apiKey;
+  const databaseId = firebaseAppConfig.firestoreDatabaseId || "(default)";
+
+  try {
+    const url = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/uploaded_files/${fileId}?key=${apiKey}`;
+    const resp = await fetch(url);
+    if (!resp.ok) return null;
+
+    const docData: any = await resp.json();
+    const fields = docData.fields;
+    if (!fields) return null;
+
+    const name = fields.name?.stringValue || "file";
+    const type = fields.type?.stringValue || "application/octet-stream";
+    const isChunked = fields.isChunked?.booleanValue || false;
+
+    let base64Data = "";
+    if (!isChunked) {
+      base64Data = fields.data?.stringValue || "";
+    } else {
+      const chunkCount = Number(fields.chunkCount?.integerValue || 0);
+      const chunkParts: string[] = [];
+      for (let i = 0; i < chunkCount; i++) {
+        const cUrl = `https://firestore.googleapis.com/v1/projects/${projectId}/databases/${databaseId}/documents/uploaded_files/${fileId}/chunks/${i}?key=${apiKey}`;
+        const cResp = await fetch(cUrl);
+        if (cResp.ok) {
+          const cData: any = await cResp.json();
+          chunkParts.push(cData.fields?.chunk?.stringValue || "");
+        }
+      }
+      base64Data = chunkParts.join("");
+    }
+
+    if (!base64Data) return null;
+
+    const base64Index = base64Data.indexOf(";base64,");
+    const rawB64 = base64Index !== -1 ? base64Data.substring(base64Index + 8) : base64Data;
+    const buffer = Buffer.from(rawB64, "base64");
+    return { buffer, name, type };
+  } catch (err) {
+    console.warn("fetchFileFromFirestoreRest notice:", err);
+    return null;
+  }
+}
+
+
 async function readRequestBody(req: IncomingMessage): Promise<any> {
   if (req.method === "GET" || req.method === "HEAD" || req.method === "OPTIONS") {
     return {};
@@ -197,6 +332,32 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
     }
 
     if (!targetFilePath || !fs.existsSync(targetFilePath)) {
+      // Fetch from Firestore cloud storage if missing from local ephemeral container disk
+      const cloudFile = await fetchFileFromFirestoreRest(cleanId);
+      if (cloudFile && cloudFile.buffer) {
+        const ext = path.extname(cloudFile.name) || (cloudFile.type === 'application/pdf' ? '.pdf' : '');
+        const recoveryPath = path.join(UPLOADS_DIR, `${cleanId}${ext}`);
+        try {
+          fs.writeFileSync(recoveryPath, cloudFile.buffer);
+          targetFilePath = recoveryPath;
+          fileName = cloudFile.name;
+          contentType = cloudFile.type;
+          fileMetadataStore.set(cleanId, {
+            id: cleanId,
+            name: fileName,
+            type: contentType,
+            size: cloudFile.buffer.length,
+            filePath: recoveryPath,
+            createdAt: new Date().toISOString(),
+          });
+          saveMetaStore();
+        } catch {
+          // ignore write error
+        }
+      }
+    }
+
+    if (!targetFilePath || !fs.existsSync(targetFilePath)) {
       res.statusCode = 404;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify({ error: "File not found" }));
@@ -301,7 +462,7 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
         fileBuffer = Buffer.from(JSON.stringify(fileData));
       }
 
-      const fileId = `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
+      const fileId = body.fileId || body.id || `file_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`;
       const safeExtension = path.extname(fileName) || "";
       const diskFilename = `${fileId}${safeExtension}`;
       const filePath = path.join(UPLOADS_DIR, diskFilename);
@@ -319,6 +480,10 @@ export async function handleApiRequest(req: IncomingMessage, res: ServerResponse
 
       fileMetadataStore.set(fileId, meta);
       saveMetaStore();
+
+      // Ensure file is backed up to Firestore cloud collection for cross-device persistence
+      const fullDataString = typeof fileData === "string" ? fileData : `data:${fileType};base64,${fileBuffer.toString("base64")}`;
+      saveFileToFirestoreRest(fileId, meta.name, meta.type, meta.size, fullDataString).catch(() => {});
 
       res.statusCode = 200;
       res.end(

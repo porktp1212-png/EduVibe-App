@@ -79,6 +79,7 @@ export interface RubricScoreItem {
 
 export interface AttachedFile {
   id?: string;
+  fileId?: string;
   name: string;
   type: string;
   size: number;

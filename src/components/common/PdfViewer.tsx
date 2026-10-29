@@ -1,23 +1,26 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import {
-  ChevronLeft,
-  ChevronRight,
-  ZoomIn,
-  ZoomOut,
-  RotateCw,
   Download,
   ExternalLink,
   Loader2,
   AlertCircle,
   FileText,
+  Printer,
+  Layers,
+  ChevronLeft,
+  ChevronRight,
+  ZoomIn,
+  ZoomOut,
+  RotateCw,
   Maximize2,
   RefreshCw,
 } from 'lucide-react';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { dataUrlToBlob, downloadOrOpenFile } from '../../lib/fileUpload';
+import { getFileFromCloud } from '../../services/cloudStorageService';
 
-// Initialize PDF.js worker
+// Initialize PDF.js worker safely
 if (typeof window !== 'undefined') {
   try {
     if (!pdfjsLib.GlobalWorkerOptions.workerSrc) {
@@ -33,44 +36,125 @@ interface PdfViewerProps {
     name: string;
     url?: string;
     data?: string;
+    fileId?: string;
     size?: number;
+    type?: string;
   };
 }
 
 export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
+  const [resolvedData, setResolvedData] = useState<string | null>(file.data || null);
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [isLoadingData, setIsLoadingData] = useState<boolean>(!file.data);
+  const [dataError, setDataError] = useState<string | null>(null);
+
+  // View Mode: 'native' (default, ultra-reliable & crisp) or 'canvas' (PDF.js page-by-page)
+  const [viewMode, setViewMode] = useState<'native' | 'canvas'>('native');
+
+  // Canvas Mode state
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [scale, setScale] = useState<number>(1.2);
   const [rotation, setRotation] = useState<number>(0);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [useIframeFallback, setUseIframeFallback] = useState<boolean>(false);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [isCanvasLoading, setIsCanvasLoading] = useState<boolean>(false);
+  const [canvasError, setCanvasError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfDocRef = useRef<any>(null);
   const renderTaskRef = useRef<any>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
-  // Generate safe same-origin Blob URL for fallback or new-tab viewing
+  // 1. Resolve file data from cloud if missing (Real-time cross-device sync)
   useEffect(() => {
+    let isCancelled = false;
+
+    if (file.data && file.data.startsWith('data:')) {
+      setResolvedData(file.data);
+      setIsLoadingData(false);
+      setDataError(null);
+      return;
+    }
+
+    setIsLoadingData(true);
+    setDataError(null);
+
+    getFileFromCloud(file)
+      .then((res) => {
+        if (isCancelled) return;
+        if (res && res.data) {
+          setResolvedData(res.data);
+          setIsLoadingData(false);
+        } else if (file.url) {
+          // If couldn't get base64 but have url, try fetch
+          fetch(file.url)
+            .then((resp) => resp.blob())
+            .then((blob) => {
+              if (isCancelled) return;
+              const r = new FileReader();
+              r.onload = () => {
+                if (!isCancelled) {
+                  setResolvedData(r.result as string);
+                  setIsLoadingData(false);
+                }
+              };
+              r.readAsDataURL(blob);
+            })
+            .catch(() => {
+              if (!isCancelled) {
+                setDataError('ไม่พบข้อมูลเนื้อหาไฟล์ PDF ในระบบ กรุณาตรวจสอบการเชื่อมต่อ');
+                setIsLoadingData(false);
+              }
+            });
+        } else {
+          setDataError('ไม่พบข้อมูลเนื้อหาไฟล์ PDF ในระบบ กรุณาตรวจสอบการเชื่อมต่อ');
+          setIsLoadingData(false);
+        }
+      })
+      .catch((err) => {
+        if (isCancelled) return;
+        console.warn('Error resolving PDF data:', err);
+        setDataError('เกิดข้อผิดพลาดในการโหลดไฟล์ PDF ข้ามเครื่อง');
+        setIsLoadingData(false);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [file.data, file.url, file.fileId, (file as any).id]);
+
+  // 2. Generate reliable same-origin Blob URL from resolved data
+  useEffect(() => {
+    if (!resolvedData) {
+      setBlobUrl(null);
+      return;
+    }
+
     let activeUrl: string | null = null;
     try {
-      if (file.data && file.data.startsWith('data:')) {
-        const blob = dataUrlToBlob(file.data, 'application/pdf');
-        activeUrl = URL.createObjectURL(blob);
-        setBlobUrl(activeUrl);
-      } else if (file.url && file.url.startsWith('/api/files/')) {
-        setBlobUrl(file.url);
-      } else if (file.url) {
-        setBlobUrl(file.url);
+      let blob: Blob;
+      if (resolvedData.startsWith('data:')) {
+        blob = dataUrlToBlob(resolvedData, 'application/pdf');
+      } else {
+        // Raw base64 string
+        const cleanB64 = resolvedData.includes(';base64,')
+          ? resolvedData.substring(resolvedData.indexOf(';base64,') + 8)
+          : resolvedData;
+        const binaryStr = atob(cleanB64);
+        const bytes = new Uint8Array(binaryStr.length);
+        for (let i = 0; i < binaryStr.length; i++) {
+          bytes[i] = binaryStr.charCodeAt(i);
+        }
+        blob = new Blob([bytes], { type: 'application/pdf' });
       }
+
+      activeUrl = URL.createObjectURL(blob);
+      setBlobUrl(activeUrl);
     } catch (err) {
-      console.warn('Error preparing blob URL:', err);
+      console.warn('Error creating PDF blob URL:', err);
     }
 
     return () => {
-      if (activeUrl && activeUrl.startsWith('blob:')) {
+      if (activeUrl) {
         try {
           URL.revokeObjectURL(activeUrl);
         } catch {
@@ -78,14 +162,15 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         }
       }
     };
-  }, [file.data, file.url]);
+  }, [resolvedData]);
 
-  // Load the PDF Document using PDF.js
+  // 3. Load PDF.js document when in Canvas mode
   const loadPdfDocument = useCallback(async () => {
-    setIsLoading(true);
-    setErrorMessage(null);
+    if (!resolvedData && !blobUrl) return;
 
-    // Cancel existing render if any
+    setIsCanvasLoading(true);
+    setCanvasError(null);
+
     if (renderTaskRef.current) {
       try {
         renderTaskRef.current.cancel();
@@ -98,11 +183,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
     try {
       let loadingTask: any = null;
 
-      // 1. Prefer base64 data if available: convert to Uint8Array directly
-      if (file.data && file.data.startsWith('data:')) {
-        const base64Index = file.data.indexOf(';base64,');
-        const b64 = base64Index !== -1 ? file.data.substring(base64Index + 8) : file.data;
-        const binaryStr = atob(b64);
+      if (resolvedData) {
+        const cleanB64 = resolvedData.includes(';base64,')
+          ? resolvedData.substring(resolvedData.indexOf(';base64,') + 8)
+          : resolvedData;
+        const binaryStr = atob(cleanB64);
         const bytes = new Uint8Array(binaryStr.length);
         for (let i = 0; i < binaryStr.length; i++) {
           bytes[i] = binaryStr.charCodeAt(i);
@@ -112,44 +197,35 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
           cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/cmaps/',
           cMapPacked: true,
         });
-      } else if (file.url) {
-        // 2. Load from URL (e.g. /api/files/...)
+      } else if (blobUrl) {
         loadingTask = pdfjsLib.getDocument({
-          url: file.url,
+          url: blobUrl,
           cMapUrl: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@6.3.289/cmaps/',
           cMapPacked: true,
         });
-      } else if (file.data) {
-        // Raw base64 string
-        const binaryStr = atob(file.data);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) {
-          bytes[i] = binaryStr.charCodeAt(i);
-        }
-        loadingTask = pdfjsLib.getDocument({
-          data: bytes,
-        });
-      } else {
-        throw new Error('ไม่พบข้อมูลไฟล์ PDF');
+      }
+
+      if (!loadingTask) {
+        throw new Error('ไม่สามารถเตรียมการโหลด PDF ได้');
       }
 
       const pdf = await loadingTask.promise;
       pdfDocRef.current = pdf;
       setNumPages(pdf.numPages);
       setCurrentPage(1);
-      setIsLoading(false);
+      setIsCanvasLoading(false);
     } catch (err: any) {
-      console.warn('PDF.js render notice:', err);
-      // If render failed, allow fallback
-      setErrorMessage(
-        err?.message || 'ไม่สามารถประมวลผลไฟล์ PDF ผ่านหน้าจอได้โดยตรง'
-      );
-      setIsLoading(false);
+      console.warn('PDF.js render notice, switching to native browser view:', err);
+      setCanvasError('แคนวาสไม่สามารถประมวลผลได้ สลับไปยังโหมดเบราว์เซอร์');
+      setIsCanvasLoading(false);
+      setViewMode('native');
     }
-  }, [file.data, file.url]);
+  }, [resolvedData, blobUrl]);
 
   useEffect(() => {
-    loadPdfDocument();
+    if (viewMode === 'canvas') {
+      loadPdfDocument();
+    }
     return () => {
       if (renderTaskRef.current) {
         try {
@@ -167,11 +243,11 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         pdfDocRef.current = null;
       }
     };
-  }, [loadPdfDocument]);
+  }, [viewMode, loadPdfDocument]);
 
-  // Render current page to canvas whenever page, scale, or rotation changes
+  // 4. Render current page to canvas
   useEffect(() => {
-    if (!pdfDocRef.current || !canvasRef.current || isLoading) return;
+    if (viewMode !== 'canvas' || !pdfDocRef.current || !canvasRef.current || isCanvasLoading) return;
 
     let isCancelled = false;
 
@@ -196,8 +272,6 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         if (!ctx) return;
 
         const viewport = page.getViewport({ scale, rotation });
-
-        // Use pixel ratio for ultra-crisp text on high-DPI (Retina) screens
         const pixelRatio = window.devicePixelRatio || 1;
         canvas.width = Math.floor(viewport.width * pixelRatio);
         canvas.height = Math.floor(viewport.height * pixelRatio);
@@ -233,226 +307,268 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
         }
       }
     };
-  }, [currentPage, scale, rotation, isLoading]);
+  }, [viewMode, currentPage, scale, rotation, isCanvasLoading]);
 
-  const handlePrevPage = () => {
-    if (currentPage > 1) setCurrentPage((prev) => prev - 1);
-  };
-
-  const handleNextPage = () => {
-    if (currentPage < numPages) setCurrentPage((prev) => prev + 1);
-  };
-
-  const handleZoomIn = () => {
-    setScale((prev) => Math.min(prev + 0.2, 3.0));
-  };
-
-  const handleZoomOut = () => {
-    setScale((prev) => Math.max(prev - 0.2, 0.6));
-  };
-
-  const handleFitWidth = () => {
-    if (containerRef.current && pdfDocRef.current) {
-      pdfDocRef.current.getPage(currentPage).then((page: any) => {
-        const unscaledViewport = page.getViewport({ scale: 1.0, rotation });
-        const containerWidth = containerRef.current?.clientWidth || 700;
-        const availableWidth = Math.max(containerWidth - 60, 320);
-        const newScale = availableWidth / unscaledViewport.width;
-        setScale(Number(newScale.toFixed(2)));
-      });
+  const handleDownload = () => {
+    if (blobUrl) {
+      downloadOrOpenFile(blobUrl, file.name, true);
+    } else if (resolvedData) {
+      downloadOrOpenFile(resolvedData, file.name, true);
+    } else {
+      downloadOrOpenFile(file.url, file.name, true);
     }
   };
 
-  const handleRotate = () => {
-    setRotation((prev) => (prev + 90) % 360);
-  };
-
-  const handleDownload = () => {
-    downloadOrOpenFile(file.data || file.url, file.name, true);
-  };
-
   const handleOpenNewTab = () => {
-    downloadOrOpenFile(file.data || file.url, file.name, false);
+    if (blobUrl) {
+      downloadOrOpenFile(blobUrl, file.name, false);
+    } else if (resolvedData) {
+      downloadOrOpenFile(resolvedData, file.name, false);
+    } else {
+      downloadOrOpenFile(file.url, file.name, false);
+    }
+  };
+
+  const handlePrint = () => {
+    if (blobUrl) {
+      const printWindow = window.open(blobUrl, '_blank');
+      if (printWindow) {
+        printWindow.focus();
+        setTimeout(() => {
+          try {
+            printWindow.print();
+          } catch {
+            // ignore
+          }
+        }, 800);
+      }
+    }
   };
 
   return (
     <div className="w-full h-full flex flex-col bg-slate-900 rounded-2xl overflow-hidden border border-slate-800 shadow-2xl">
-      {/* PDF Controls Toolbar */}
-      <div className="px-4 py-2.5 bg-slate-950/90 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-white shrink-0">
-        {/* Page navigation */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handlePrevPage}
-            disabled={currentPage <= 1 || isLoading || numPages <= 0}
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 transition-colors text-white"
-            title="หน้าก่อนหน้า"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-
-          <span className="text-xs font-semibold px-2 text-slate-300">
-            {numPages > 0 ? `หน้า ${currentPage} / ${numPages}` : 'กำลังโหลด...'}
+      {/* Top Toolbar */}
+      <div className="px-4 py-3 bg-slate-950/95 border-b border-slate-800 flex flex-wrap items-center justify-between gap-3 text-white shrink-0">
+        <div className="flex items-center gap-2 overflow-hidden">
+          <div className="p-1.5 rounded-lg bg-rose-500/20 text-rose-400 shrink-0 border border-rose-500/30">
+            <FileText className="w-4 h-4" />
+          </div>
+          <span className="text-xs sm:text-sm font-bold truncate text-slate-100 max-w-[180px] sm:max-w-xs md:max-w-md" title={file.name}>
+            {file.name}
           </span>
-
-          <button
-            type="button"
-            onClick={handleNextPage}
-            disabled={currentPage >= numPages || isLoading || numPages <= 0}
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 disabled:hover:bg-white/10 transition-colors text-white"
-            title="หน้าถัดไป"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Zoom & View Controls */}
-        <div className="flex items-center gap-1.5">
-          <button
-            type="button"
-            onClick={handleZoomOut}
-            disabled={scale <= 0.6 || isLoading}
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 transition-colors"
-            title="ย่อขนาด (-)"
-          >
-            <ZoomOut className="w-4 h-4" />
-          </button>
-
-          <span className="text-xs font-medium px-1 text-slate-300 min-w-[44px] text-center">
-            {Math.round(scale * 100)}%
-          </span>
-
-          <button
-            type="button"
-            onClick={handleZoomIn}
-            disabled={scale >= 3.0 || isLoading}
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 transition-colors"
-            title="ขยายขนาด (+)"
-          >
-            <ZoomIn className="w-4 h-4" />
-          </button>
-
-          <button
-            type="button"
-            onClick={handleFitWidth}
-            disabled={isLoading || numPages <= 0}
-            className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-xs font-medium text-slate-200 transition-colors flex items-center gap-1"
-            title="พอดีความกว้าง"
-          >
-            <Maximize2 className="w-3 h-3" />
-            <span className="hidden sm:inline">พอดีจอ</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleRotate}
-            disabled={isLoading || numPages <= 0}
-            className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
-            title="หมุน 90 องศา"
-          >
-            <RotateCw className="w-4 h-4" />
-          </button>
         </div>
 
         {/* Action Controls */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
+          {/* Mode Switcher */}
+          <div className="flex items-center bg-slate-800 p-0.5 rounded-xl border border-slate-700 text-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode('native')}
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                viewMode === 'native'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="โหมดเบราว์เซอร์อัตโนมัติ (แนะนำ คมชัดและโหลดเร็วที่สุด)"
+            >
+              โหมดเบราว์เซอร์
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('canvas')}
+              className={`px-2.5 py-1 rounded-lg font-semibold transition-all cursor-pointer ${
+                viewMode === 'canvas'
+                  ? 'bg-teal-600 text-white shadow-xs'
+                  : 'text-slate-300 hover:text-white'
+              }`}
+              title="โหมดแคนวาสแยกตามหน้า (Canvas HD)"
+            >
+              โหมดแคนวาส
+            </button>
+          </div>
+
           <button
             type="button"
             onClick={handleOpenNewTab}
-            className="px-2.5 py-1.5 rounded-lg bg-teal-600/80 hover:bg-teal-500 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-xs"
-            title="เปิดดูในแท็บใหม่"
+            disabled={!blobUrl && !resolvedData}
+            className="px-3 py-1.5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-1.5 transition-colors shadow-xs cursor-pointer disabled:opacity-40"
+            title="เปิดดูในแท็บใหม่แบบเต็มจอ"
           >
             <ExternalLink className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">เปิดในแท็บใหม่</span>
+            <span className="hidden sm:inline">เปิดในแท็บใหม่</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handlePrint}
+            disabled={!blobUrl}
+            className="p-1.5 sm:px-2.5 sm:py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-40"
+            title="พิมพ์เอกสาร PDF"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span className="hidden md:inline">พิมพ์</span>
           </button>
 
           <button
             type="button"
             onClick={handleDownload}
-            className="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs font-medium flex items-center gap-1.5 transition-colors"
-            title="ดาวน์โหลด PDF"
+            disabled={!blobUrl && !resolvedData && !file.url}
+            className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+            title="ดาวน์โหลดไฟล์ PDF"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden md:inline">ดาวน์โหลด</span>
+            <span className="hidden sm:inline">ดาวน์โหลด</span>
           </button>
         </div>
       </div>
 
-      {/* Main Canvas Viewport Area */}
+      {/* Canvas Controls Toolbar (Only active when in Canvas mode) */}
+      {viewMode === 'canvas' && numPages > 0 && (
+        <div className="px-4 py-2 bg-slate-900 border-b border-slate-800 flex flex-wrap items-center justify-between gap-2 text-white shrink-0 text-xs">
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage <= 1 || isCanvasLoading}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 transition-colors"
+              title="หน้าก่อนหน้า"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <span className="font-semibold px-2 text-slate-300">
+              หน้า {currentPage} / {numPages}
+            </span>
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.min(numPages, p + 1))}
+              disabled={currentPage >= numPages || isCanvasLoading}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 transition-colors"
+              title="หน้าถัดไป"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setScale((s) => Math.max(0.6, s - 0.2))}
+              disabled={scale <= 0.6 || isCanvasLoading}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 transition-colors"
+              title="ย่อ (-)"
+            >
+              <ZoomOut className="w-4 h-4" />
+            </button>
+            <span className="font-medium px-1 text-slate-300 min-w-[40px] text-center">
+              {Math.round(scale * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => setScale((s) => Math.min(3.0, s + 0.2))}
+              disabled={scale >= 3.0 || isCanvasLoading}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 disabled:opacity-30 transition-colors"
+              title="ขยาย (+)"
+            >
+              <ZoomIn className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setRotation((r) => (r + 90) % 360)}
+              className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-slate-300 hover:text-white transition-colors"
+              title="หมุน 90 องศา"
+            >
+              <RotateCw className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main Viewport */}
       <div
         ref={containerRef}
-        className="grow overflow-auto p-4 sm:p-6 bg-slate-900/95 flex items-center justify-center min-h-[420px] max-h-[72vh]"
+        className="grow overflow-auto p-2 sm:p-4 bg-slate-950 flex items-center justify-center min-h-[440px] max-h-[76vh]"
       >
-        {isLoading && (
-          <div className="flex flex-col items-center justify-center gap-3 text-slate-400 py-12">
-            <Loader2 className="w-9 h-9 animate-spin text-teal-400" />
-            <p className="text-sm font-medium">กำลังเตรียมและโหลดหน้าเอกสาร PDF...</p>
+        {/* Loading State */}
+        {isLoadingData && (
+          <div className="flex flex-col items-center justify-center gap-3 text-slate-400 py-16">
+            <Loader2 className="w-10 h-10 animate-spin text-teal-400" />
+            <p className="text-sm font-semibold text-white">กำลังซิงค์และโหลดเนื้อหาไฟล์ PDF จากคลาวด์...</p>
+            <p className="text-xs text-slate-400">ดึงข้อมูลแบบเรียลไทม์เพื่อเปิดดูได้ทันทีข้ามอุปกรณ์</p>
           </div>
         )}
 
-        {errorMessage && !isLoading && (
-          <div className="max-w-md w-full p-6 bg-slate-800/90 rounded-2xl border border-slate-700 text-center space-y-4 shadow-xl">
-            <div className="w-14 h-14 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20">
+        {/* Error State */}
+        {dataError && !isLoadingData && (
+          <div className="max-w-md w-full p-6 bg-slate-900 rounded-2xl border border-slate-800 text-center space-y-4 shadow-xl">
+            <div className="w-14 h-14 rounded-2xl bg-rose-500/10 text-rose-400 flex items-center justify-center mx-auto border border-rose-500/20">
               <AlertCircle className="w-7 h-7" />
             </div>
             <div>
-              <h4 className="text-sm font-bold text-white mb-1">ไม่สามารถแสดงผลผ่านหน้าต่างนี้ได้</h4>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                เนื่องจากเบราว์เซอร์หรืออุปกรณ์อาจจำกัดการแสดงตัวอย่าง PDF ภายในหน้าเว็บ
-                ท่านสามารถเปิดดูในแท็บใหม่หรือดาวน์โหลดไฟล์เพื่อเปิดด้วยโปรแกรมอ่าน PDF ได้ทันที
-              </p>
+              <h4 className="text-sm font-bold text-white mb-1">ไม่สามารถดึงข้อมูลไฟล์ PDF ได้</h4>
+              <p className="text-xs text-slate-400 leading-relaxed">{dataError}</p>
             </div>
-
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 pt-2">
+            <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
               <button
                 type="button"
                 onClick={handleOpenNewTab}
-                className="w-full sm:w-auto px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-500 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer"
               >
                 <ExternalLink className="w-3.5 h-3.5" />
-                <span>เปิดดูในแท็บใหม่</span>
+                <span>ลองเปิดผ่านแท็บใหม่</span>
               </button>
               <button
                 type="button"
                 onClick={handleDownload}
-                className="w-full sm:w-auto px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-xl text-xs font-bold transition-colors flex items-center justify-center gap-1.5"
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-700"
               >
                 <Download className="w-3.5 h-3.5" />
-                <span>ดาวน์โหลดไฟล์ PDF</span>
+                <span>ดาวน์โหลดไฟล์</span>
               </button>
             </div>
+          </div>
+        )}
 
-            {/* Optional Embedded Viewer fallback button */}
-            {blobUrl && (
-              <div className="pt-2 border-t border-slate-700/50">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUseIframeFallback(true);
-                    setErrorMessage(null);
-                  }}
-                  className="text-xs text-teal-400 hover:text-teal-300 underline"
-                >
-                  ลองเปิดผ่านโหมดฝังเบราว์เซอร์
-                </button>
+        {/* 1. Native High-Performance Browser Engine (Recommended default) */}
+        {!isLoadingData && !dataError && viewMode === 'native' && blobUrl && (
+          <div className="w-full h-[72vh] rounded-xl overflow-hidden bg-white shadow-2xl border border-slate-800">
+            <object
+              data={blobUrl}
+              type="application/pdf"
+              className="w-full h-full rounded-xl"
+            >
+              <iframe
+                src={blobUrl}
+                title={file.name}
+                className="w-full h-full border-0 rounded-xl"
+              >
+                <div className="p-8 text-center space-y-3">
+                  <p className="text-sm text-slate-700">เบราว์เซอร์นี้จำกัดการแสดงผลตัวอย่าง PDF ฝังในหน้าเว็บ</p>
+                  <button
+                    type="button"
+                    onClick={handleOpenNewTab}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-xl text-xs font-bold"
+                  >
+                    คลิกเปิดดูในแท็บใหม่ทันที
+                  </button>
+                </div>
+              </iframe>
+            </object>
+          </div>
+        )}
+
+        {/* 2. Canvas HD PDF.js page-by-page rendering */}
+        {!isLoadingData && !dataError && viewMode === 'canvas' && (
+          <div className="w-full flex items-center justify-center">
+            {isCanvasLoading && (
+              <div className="flex flex-col items-center justify-center gap-3 text-slate-400 py-12">
+                <Loader2 className="w-8 h-8 animate-spin text-teal-400" />
+                <p className="text-xs font-medium">กำลังวาดหน้าเอกสารแคนวาส...</p>
               </div>
             )}
-          </div>
-        )}
-
-        {useIframeFallback && blobUrl && (
-          <div className="w-full h-[68vh] bg-white rounded-xl overflow-hidden shadow-2xl border border-slate-700">
-            <iframe
-              src={blobUrl}
-              title={file.name}
-              className="w-full h-full border-0"
-            />
-          </div>
-        )}
-
-        {!isLoading && !errorMessage && !useIframeFallback && (
-          <div className="transition-all duration-150 inline-block shadow-2xl rounded-lg bg-white overflow-hidden border border-slate-700 my-auto">
-            <canvas ref={canvasRef} className="block max-w-full h-auto" />
+            <div className={`transition-all inline-block shadow-2xl rounded-lg bg-white overflow-hidden border border-slate-700 my-auto ${isCanvasLoading ? 'hidden' : 'block'}`}>
+              <canvas ref={canvasRef} className="block max-w-full h-auto" />
+            </div>
           </div>
         )}
       </div>
@@ -464,7 +580,7 @@ export const PdfViewer: React.FC<PdfViewerProps> = ({ file }) => {
           <span className="truncate text-slate-300 font-medium">{file.name}</span>
         </div>
         <div className="flex items-center gap-3 shrink-0">
-          <span>รองรับการแสดงผลความละเอียดสูง (Canvas HD)</span>
+          <span className="text-emerald-400 font-medium">✓ ซิงค์คลาวด์เรียลไทม์ พร้อมเปิดดูได้ทันที</span>
         </div>
       </div>
     </div>

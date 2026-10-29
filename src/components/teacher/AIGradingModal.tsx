@@ -96,10 +96,14 @@ export const AIGradingModal: React.FC<AIGradingModalProps> = ({
 
   const attachedFiles: AttachedFile[] =
     submission.files && Array.isArray(submission.files) && submission.files.length > 0
-      ? submission.files
+      ? submission.files.map((f) => ({
+          ...f,
+          fileId: f.fileId || (f.url && f.url.includes('/api/files/') ? f.url.split('/api/files/')[1]?.split('?')[0] : undefined),
+        }))
       : submission.fileData || submission.fileUrl || submission.fileName
       ? [
           {
+            fileId: submission.fileUrl && submission.fileUrl.includes('/api/files/') ? submission.fileUrl.split('/api/files/')[1]?.split('?')[0] : undefined,
             name: submission.fileName || 'ไฟล์ผลงาน',
             type: submission.fileType || 'application/octet-stream',
             size: submission.fileSize || 0,

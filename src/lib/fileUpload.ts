@@ -1,4 +1,5 @@
 import type { AttachedFile } from '../types';
+import { saveFileToCloud, getFileFromCloud, extractFileId } from '../services/cloudStorageService';
 
 /**
  * Formats a file size in bytes into human-readable string (KB, MB, GB)
@@ -203,7 +204,7 @@ export function getFileCategory(name: string, type?: string): FileCategory {
 }
 
 /**
- * Processes a File object, handles compression (if image) and uploads to server
+ * Processes a File object, handles compression (if image) and uploads to cloud & server
  */
 export async function processSingleFile(file: File): Promise<AttachedFile> {
   const isImage = file.type.startsWith('image/');
@@ -222,26 +223,23 @@ export async function processSingleFile(file: File): Promise<AttachedFile> {
     console.warn('Failed to read file buffer:', readErr);
   }
 
-  // Attempt to upload to server endpoint
-  let serverResult: { fileUrl: string; fileId: string } | null = null;
   if (dataUrl) {
-    serverResult = await uploadFileToServer({
+    // Save to Firestore cloud_files & Express endpoint in real-time
+    const cloudFile = await saveFileToCloud({
       name: file.name,
       type: file.type || 'application/octet-stream',
       size: finalSize,
       data: dataUrl,
     });
+    return cloudFile;
   }
-
-  const fileUrl = serverResult?.fileUrl || (dataUrl.startsWith('data:') ? dataUrl : undefined);
 
   return {
     name: file.name,
     type: file.type || 'application/octet-stream',
     size: finalSize,
-    url: fileUrl || (dataUrl ? dataUrl : undefined),
-    data: dataUrl || undefined,
-    uploadStatus: 'ready',
+    uploadStatus: 'error',
+    errorMessage: 'ไม่สามารถอ่านข้อมูลไฟล์ได้',
   };
 }
 
@@ -298,32 +296,40 @@ export function base64ToUint8Array(b64String: string): Uint8Array {
 }
 
 /**
- * Downloads or opens a file in a reliable cross-browser way (supports base64, data:, blob:, and server URLs)
+ * Downloads or opens a file in a reliable cross-browser way (supports cloud files, base64, data:, blob:, and server URLs)
  */
-export function downloadOrOpenFile(
+export async function downloadOrOpenFile(
   fileUrl?: string,
   fileName?: string,
   forceDownload = false
 ) {
   if (!fileUrl) return;
 
+  let actualUrl = fileUrl;
+
+  // If fileUrl is a cloud file ID or /api/files/ link, resolve content if not yet loaded
+  if (!actualUrl.startsWith('data:') && !actualUrl.startsWith('blob:')) {
+    const cloudRes = await getFileFromCloud(actualUrl);
+    if (cloudRes?.data) {
+      actualUrl = cloudRes.data;
+    }
+  }
+
   // Handle data: URLs safely using Blob URLs to avoid browser frame navigation restrictions
-  if (fileUrl.startsWith('data:')) {
-    const mime = fileUrl.match(/:(.*?);/)?.[1] || 'application/octet-stream';
-    const blob = dataUrlToBlob(fileUrl, mime);
+  if (actualUrl.startsWith('data:')) {
+    const mime = actualUrl.match(/:(.*?);/)?.[1] || 'application/octet-stream';
+    const blob = dataUrlToBlob(actualUrl, mime);
     const blobUrl = URL.createObjectURL(blob);
 
+    const a = document.createElement('a');
+    a.href = blobUrl;
     if (forceDownload) {
-      const a = document.createElement('a');
-      a.href = blobUrl;
       a.download = fileName || 'downloaded-file';
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
       setTimeout(() => URL.revokeObjectURL(blobUrl), 60000);
     } else {
-      const a = document.createElement('a');
-      a.href = blobUrl;
       a.target = '_blank';
       a.rel = 'noopener noreferrer';
       document.body.appendChild(a);
@@ -335,9 +341,9 @@ export function downloadOrOpenFile(
   }
 
   // Handle blob: URLs
-  if (fileUrl.startsWith('blob:')) {
+  if (actualUrl.startsWith('blob:')) {
     const a = document.createElement('a');
-    a.href = fileUrl;
+    a.href = actualUrl;
     if (forceDownload) {
       a.download = fileName || 'downloaded-file';
     } else {
@@ -351,9 +357,9 @@ export function downloadOrOpenFile(
   }
 
   // Handle server and external URLs
-  const targetUrl = forceDownload && fileUrl.startsWith('/api/files/')
-    ? `${fileUrl}?download=1`
-    : fileUrl;
+  const targetUrl = forceDownload && actualUrl.startsWith('/api/files/')
+    ? `${actualUrl}?download=1`
+    : actualUrl;
 
   const a = document.createElement('a');
   a.href = targetUrl;
